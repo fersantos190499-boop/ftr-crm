@@ -1,0 +1,1752 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fuel to Run CRM</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 0; font-family: 'Poppins', sans-serif; background: #f0f4f8; }
+    select option { background: white; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" data-presets="react">
+const { useState, useMemo, useEffect, useRef, useCallback } = React;
+
+// ─── THEME ────────────────────────────────────────
+const B = "#5ba5c0", BL = "#e8f5fa", BD = "#3d8aa5";
+const NETLIFY = "https://enchanting-otter-c40bbd.netlify.app/";
+
+// ─── DATE ─────────────────────────────────────────
+const TODAY = Math.floor(Date.now() / 86400000) + 25569;
+const WK = (() => {
+  const d = new Date(), sy = new Date(d.getFullYear(), 0, 1);
+  return `${d.getFullYear()}-W${String(Math.ceil(((d - sy) / 864e5 + sy.getDay() + 1) / 7)).padStart(2, "0")}`;
+})();
+const s2d = (s) => s ? new Date((s - 25569) * 864e5) : null;
+const fd = (s) => {
+  if (!s) return "—";
+  const d = s2d(s);
+  return `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`;
+};
+const fdS = (s) => {
+  if (!s) return "—";
+  const d = s2d(s);
+  const ms = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+  return `${d.getDate()} ${ms[d.getMonth()]}`;
+};
+const fMes = (s) => {
+  if (!s) return "—";
+  const d = s2d(s);
+  const ms = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+  return `${ms[d.getMonth()]} ${d.getFullYear()}`;
+};
+const dateStrToSerial = (str) => {
+  const p = str.split("/");
+  if (p.length !== 3) return null;
+  const d = new Date(+p[2], +p[1]-1, +p[0]);
+  return isNaN(d.getTime()) ? null : Math.floor(d.getTime()/864e5)+25569;
+};
+const weekRange = (w) => {
+  const a = s2d(TODAY+w*7), b = s2d(TODAY+(w+1)*7-1);
+  const ms = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+  return `${a.getDate()} ${ms[a.getMonth()]} — ${b.getDate()} ${ms[b.getMonth()]}`;
+};
+
+// ─── PROGRAM LOGIC ────────────────────────────────
+const MOD_ST = { "3 meses":12, "6 meses":24, "6+1 meses":28, "12 meses":52 };
+const MODS = ["3 meses","6 meses","6+1 meses","12 meses"];
+const getStFromMod = (m) => MOD_ST[m] || 12;
+const getRW = (m) => m==="6 meses"?23:m==="6+1 meses"?27:m==="12 meses"?50:11;
+const getOW = (m, sp, st) => {
+  const iv = m==="6+1 meses" ? 7 : 6;
+  const r = [];
+  for (let w = iv; w <= 400; w += iv) if (w > sp && w <= sp+st-1) r.push(w);
+  return r;
+};
+const getRaces = (c, raceOvr) => {
+  const o = raceOvr?.[c.id];
+  if (o?.races !== undefined) return o.races;
+  if (c.raceDate) return [{ date: c.raceDate, name: c.raceName }];
+  return [];
+};
+const calc = (c, raceOvr) => {
+  const ff = c.fi + c.st*7, dr = ff - TODAY;
+  const el = Math.max(0, TODAY - c.fi), tot = c.st*7;
+  const pct = Math.max(0, Math.min(el/tot, 1));
+  const sc = Math.max(1, Math.min(Math.ceil(el/7), c.st));
+  const sg = (c.sp||0) + sc;
+  const sem = dr<=0?"⚫":dr<=7?"🔴":dr<=21?"🟡":"🟢";
+  const rw = getRW(c.mod), ow = getOW(c.mod, c.sp||0, c.st);
+  const isRenNow = sc===rw, isRenSoon = sc===rw-1, isOptNow = ow.includes(sg);
+  const nextOpt = ow.find(w=>w>sg)||null, isMensual = sc%4===0;
+  const races = getRaces(c, raceOvr);
+  const upcomingRaces = races.filter(r=>r.date>TODAY).sort((a,b)=>a.date-b.date);
+  const nextRace = upcomingRaces[0]||null;
+  const raceDays = nextRace ? nextRace.date-TODAY : null;
+  return { ff,dr,pct,sc,sg,sem,rw,ow,isRenNow,isRenSoon,isOptNow,nextOpt,isMensual,races,nextRace,raceDays };
+};
+
+// ─── DATA ─────────────────────────────────────────
+const IC = [
+  {id:1, nombre:"Luciana López",     estado:"Renovado",  renov:0,sp:0,  objC:"Bajar 5kg",                          objL:"Mantenerlos y preparar más competiciones",        raceDate:null,  raceName:"",           mod:"3 meses",   imp:390, frac:"Sí", met:"Stripe", pago:"✅ Pagado",   fi:46104, st:12},
+  {id:2, nombre:"José Luís Riffo",   estado:"Renovado",  renov:0,sp:0,  objC:"Bajar 4-5kg",                        objL:"Mantenerlos y seguir mejorando su rendimiento",   raceDate:null,  raceName:"",           mod:"3 meses",   imp:390, frac:"Sí", met:"Stripe", pago:"✅ Pagado",   fi:46111, st:12},
+  {id:3, nombre:"Angelica Sandoval", estado:"Renovado",  renov:0,sp:0,  objC:"Bajar 6kg",                          objL:"Mantenerlos.",                                    raceDate:null,  raceName:"",           mod:"3 meses",   imp:347, frac:"No", met:"PayPal", pago:"✅ Pagado",   fi:46118, st:12},
+  {id:4, nombre:"Manu Beltrán",      estado:"Finalizado",renov:0,sp:0,  objC:"Acabar la MiM",                      objL:"",                                                raceDate:null,  raceName:"",           mod:"3 meses",   imp:240, frac:"No", met:"Bizum",  pago:"✅ Pagado",   fi:46104, st:12},
+  {id:5, nombre:"Marta Fidalgo",     estado:"Finalizado",renov:0,sp:0,  objC:"Bajar peso y correr 21k",            objL:"Bajar peso para correr más cómoda",               raceDate:null,  raceName:"21k oct",    mod:"3 meses",   imp:390, frac:"Sí", met:"Stripe", pago:"✅ Pagado",   fi:46125, st:12},
+  {id:6, nombre:"Paula Gisela",      estado:"Activo",    renov:0,sp:0,  objC:"Bajar 4kg",                          objL:"Correr con más resistencia y mejorar marcas",     raceDate:null,  raceName:"",           mod:"3 meses",   imp:347, frac:"No", met:"Stripe", pago:"✅ Pagado",   fi:46139, st:12},
+  {id:7, nombre:"David Lagunilla",   estado:"Activo",    renov:0,sp:0,  objC:"Bajar 2kg y aprender sobre nutrición",objL:"Mantener el físico y mejorar composición",       raceDate:null,  raceName:"",           mod:"3 meses",   imp:347, frac:"Sí", met:"Stripe", pago:"✅ Pagado",   fi:46139, st:12},
+  {id:8, nombre:"Laila De Juana",    estado:"Activo",    renov:0,sp:0,  objC:"Bajar tiempos y tener más energía",  objL:"Preparar próximas carreras y bajar grasa",        raceDate:null,  raceName:"",           mod:"3 meses",   imp:347, frac:"No", met:"Stripe", pago:"✅ Pagado",   fi:46139, st:12},
+  {id:9, nombre:"Adrián López",      estado:"Activo",    renov:0,sp:0,  objC:"Bajar grasa y preparar Benasque",    objL:"Seguir mejorando y preparar la MiM",              raceDate:null,  raceName:"",           mod:"6 meses",   imp:597, frac:"Sí", met:"Bizum",  pago:"⏳ Pendiente", fi:46146, st:24},
+  {id:10,nombre:"Jhonatan Marques",  estado:"Activo",    renov:0,sp:0,  objC:"Bajar grasa y sub 4h en maratón",    objL:"Seguir mejorando + Ironman 70.3",                 raceDate:null,  raceName:"",           mod:"6 meses",   imp:597, frac:"No", met:"Stripe", pago:"✅ Pagado",   fi:46153, st:24},
+  {id:11,nombre:"Carolina Silva",    estado:"Baja",      renov:0,sp:0,  objC:"Perder 10kg y mejorar marcas",       objL:"Mantener el peso perdido",                        raceDate:null,  raceName:"",           mod:"3 meses",   imp:347, frac:"Sí", met:"Stripe", pago:"⏳ Pendiente", fi:46153, st:12},
+  {id:12,nombre:"Vanesa Pérez",      estado:"Activo",    renov:0,sp:0,  objC:"Mejorar marcas y completar una 42k", objL:"Seguir rompiendo marcas personales",              raceDate:null,  raceName:"",           mod:"6 meses",   imp:597, frac:"No", met:"Stripe", pago:"✅ Pagado",   fi:46153, st:24},
+  {id:13,nombre:"Pablo Oliver",      estado:"Activo",    renov:0,sp:0,  objC:"Perder 6kg de peso",                 objL:"Perder 13-15kg y mantenerlo",                     raceDate:46242, raceName:"15k Eslida", mod:"3 meses",   imp:347, frac:"No", met:"Stripe", pago:"✅ Pagado",   fi:46160, st:12},
+  {id:14,nombre:"Jordi Miralles",    estado:"Activo",    renov:0,sp:0,  objC:"Mejorar rendimiento",                objL:"",                                                raceDate:null,  raceName:"",           mod:"6 meses",   imp:597, frac:"No", met:"Stripe", pago:"✅ Pagado",   fi:46160, st:24},
+  {id:15,nombre:"Rolando Candanedo", estado:"Activo",    renov:0,sp:0,  objC:"Perder grasa y ganar músculo",       objL:"Mantenerlo",                                      raceDate:46285, raceName:"42k",        mod:"3 meses",   imp:347, frac:"No", met:"Stripe", pago:"✅ Pagado",   fi:46167, st:12},
+  {id:16,nombre:"Anibal Prunes",     estado:"Activo",    renov:0,sp:0,  objC:"Perder grasa y ganar músculo",       objL:"Completar la maratón de Berlín",                  raceDate:46236, raceName:"10k Asics",  mod:"6 meses",   imp:597, frac:"No", met:"Stripe", pago:"✅ Pagado",   fi:46167, st:24},
+  {id:17,nombre:"Felipe Fernández",  estado:"Activo",    renov:0,sp:0,  objC:"Bajar 9kg",                          objL:"Estar saludable",                                 raceDate:46362, raceName:"42k Valencia",mod:"6 meses",   imp:597, frac:"No", met:"Stripe", pago:"✅ Pagado",   fi:46167, st:24},
+  {id:18,nombre:"Ana Zarapico",      estado:"Activo",    renov:0,sp:0,  objC:"Bajar 3-4kg",                        objL:"Mantenerlo y completar la 21k",                   raceDate:null,  raceName:"",           mod:"6 meses",   imp:597, frac:"No", met:"Stripe", pago:"✅ Pagado",   fi:46167, st:24},
+  {id:19,nombre:"Rafa Vida",         estado:"Activo",    renov:0,sp:0,  objC:"",                                   objL:"",                                                raceDate:null,  raceName:"",           mod:"3 meses",   imp:347, frac:"No", met:"Stripe", pago:"✅ Pagado",   fi:46167, st:12},
+  {id:20,nombre:"Aldo Gonzales",     estado:"Activo",    renov:0,sp:0,  objC:"",                                   objL:"",                                                raceDate:null,  raceName:"",           mod:"6 meses",   imp:697, frac:"No", met:"PayPal", pago:"✅ Pagado",   fi:46188, st:24},
+  {id:21,nombre:"Danielle Karlinsky",estado:"Activo",    renov:0,sp:0,  objC:"",                                   objL:"",                                                raceDate:null,  raceName:"",           mod:"6 meses",   imp:697, frac:"No", met:"PayPal", pago:"✅ Pagado",   fi:46188, st:24},
+  {id:22,nombre:"Luciana López",     estado:"Activo",    renov:1,sp:12, objC:"",                                   objL:"",                                                raceDate:null,  raceName:"",           mod:"3 meses",   imp:360, frac:"Sí", met:"Stripe", pago:"⏳ Pendiente", fi:46188, st:12},
+  {id:23,nombre:"José Luís Riffo",   estado:"Activo",    renov:1,sp:12, objC:"",                                   objL:"",                                                raceDate:null,  raceName:"",           mod:"3 meses",   imp:360, frac:"Sí", met:"Stripe", pago:"⏳ Pendiente", fi:46195, st:12},
+  {id:24,nombre:"Angelica Sandoval", estado:"Activo",    renov:1,sp:12, objC:"",                                   objL:"",                                                raceDate:null,  raceName:"",           mod:"3 meses",   imp:347, frac:"No", met:"PayPal", pago:"✅ Pagado",   fi:46202, st:12},
+  {id:25,nombre:"Gema Cima",         estado:"Activo",    renov:0,sp:0,  objC:"",                                   objL:"",                                                raceDate:null,  raceName:"",           mod:"6 meses",   imp:697, frac:"No", met:"PayPal", pago:"✅ Pagado",   fi:46202, st:24},
+  {id:26,nombre:"Andrea Martín",     estado:"Activo",    renov:0,sp:0,  objC:"",                                   objL:"",                                                raceDate:null,  raceName:"",           mod:"6+1 meses", imp:697, frac:"Sí", met:"Stripe", pago:"⏳ Pendiente", fi:46209, st:28},
+  {id:27,nombre:"David Llorens",     estado:"Activo",    renov:0,sp:0,  objC:"",                                   objL:"",                                                raceDate:null,  raceName:"",           mod:"6+1 meses", imp:697, frac:"Sí", met:"Stripe", pago:"⏳ Pendiente", fi:46209, st:28},
+];
+
+const ICO = [
+  {id:1, f:46097,c:"Manu Beltrán",      conc:"Programa completo",i:240,m:"Bizum", n:"Precio presencial inicial"},
+  {id:2, f:46098,c:"Rafa Vida",         conc:"Cuota 1/2",       i:75, m:"Bizum", n:"Programa Beta"},
+  {id:3, f:46098,c:"Pedro Quesada",     conc:"Cuota 1/2",       i:75, m:"Bizum", n:"Programa Beta"},
+  {id:4, f:46098,c:"Mónica Feliu",      conc:"Cuota 1/2",       i:75, m:"Bizum", n:"Programa Beta"},
+  {id:5, f:46101,c:"Luciana López",     conc:"Cuota 1/3",       i:130,m:"Stripe",n:""},
+  {id:6, f:46104,c:"José Luís Riffo",   conc:"Cuota 1/3",       i:130,m:"Stripe",n:""},
+  {id:7, f:46111,c:"Pepe Martinavarro", conc:"Completo",         i:150,m:"Efectivo",n:"Programa Beta"},
+  {id:8, f:46114,c:"Angelica Sandoval", conc:"Programa completo",i:347,m:"PayPal",n:""},
+  {id:9, f:46119,c:"Marta Fidalgo",     conc:"Cuota 1/3",       i:130,m:"Stripe",n:""},
+  {id:10,f:46132,c:"Rafa Vida",         conc:"Cuota 2/2",       i:75, m:"Bizum", n:"Programa Beta"},
+  {id:11,f:46132,c:"Pedro Quesada",     conc:"Cuota 2/2",       i:75, m:"Bizum", n:"Programa Beta"},
+  {id:12,f:46132,c:"Mónica Feliu",      conc:"Cuota 2/2",       i:75, m:"Bizum", n:"Programa Beta"},
+  {id:13,f:46132,c:"Paula Gisela",      conc:"Programa completo",i:347,m:"Stripe",n:""},
+  {id:14,f:46132,c:"Luciana López",     conc:"Cuota 2/3",       i:130,m:"Stripe",n:""},
+  {id:15,f:46134,c:"David Lagunilla",   conc:"Cuota 1/3",       i:130,m:"Stripe",n:""},
+  {id:16,f:46136,c:"Laila De Juana",    conc:"Programa completo",i:347,m:"Stripe",n:""},
+  {id:17,f:46137,c:"José Luís Riffo",   conc:"Cuota 2/3",       i:130,m:"Stripe",n:""},
+  {id:18,f:46147,c:"Adrián López",      conc:"Cuota 1/6",       i:99, m:"Bizum", n:""},
+  {id:19,f:46148,c:"Jhonatan Marques",  conc:"Programa completo",i:597,m:"Stripe",n:""},
+  {id:20,f:46148,c:"Carolina Silva",    conc:"Cuota 1/3",       i:116,m:"Stripe",n:""},
+  {id:21,f:46149,c:"Marta Fidalgo",     conc:"Cuota 2/3",       i:130,m:"Stripe",n:""},
+  {id:22,f:46152,c:"Vanesa Pérez",      conc:"Programa completo",i:597,m:"Stripe",n:""},
+  {id:23,f:46155,c:"Pablo Oliver",      conc:"Programa completo",i:347,m:"Stripe",n:""},
+  {id:24,f:46161,c:"Jordi Miralles",    conc:"Programa completo",i:597,m:"Stripe",n:""},
+  {id:25,f:46161,c:"Rolando Candanedo", conc:"Programa completo",i:347,m:"Stripe",n:""},
+  {id:26,f:46162,c:"Anibal Prunes",     conc:"Programa completo",i:597,m:"Stripe",n:""},
+  {id:27,f:46162,c:"Luciana López",     conc:"Cuota 3/3",       i:130,m:"Stripe",n:""},
+  {id:28,f:46163,c:"Felipe Fernández",  conc:"Programa completo",i:597,m:"Stripe",n:""},
+  {id:29,f:46164,c:"Ana Zarapico",      conc:"Programa completo",i:597,m:"Stripe",n:""},
+  {id:30,f:46164,c:"David Lagunilla",   conc:"Cuota 2/3",       i:130,m:"Stripe",n:""},
+  {id:31,f:46166,c:"José Luís Riffo",   conc:"Cuota 3/3",       i:130,m:"Stripe",n:""},
+  {id:32,f:46167,c:"Rafa Vida",         conc:"Programa completo",i:347,m:"Stripe",n:""},
+  {id:33,f:46175,c:"Adrián López",      conc:"Cuota 2/6",       i:99, m:"Bizum", n:""},
+  {id:34,f:46180,c:"Marta Fidalgo",     conc:"Cuota 3/3",       i:130,m:"Stripe",n:""},
+  {id:35,f:46181,c:"Aldo Gonzales",     conc:"Programa completo",i:697,m:"PayPal",n:""},
+  {id:36,f:46181,c:"Danielle Karlinsky",conc:"Programa completo",i:697,m:"PayPal",n:""},
+  {id:37,f:46185,c:"Luciana López",     conc:"Cuota 1/3",       i:120,m:"Stripe",n:""},
+  {id:38,f:46189,c:"José Luís Riffo",   conc:"Cuota 1/3",       i:120,m:"Stripe",n:""},
+  {id:39,f:46194,c:"Angelica Sandoval", conc:"Programa completo",i:347,m:"PayPal",n:""},
+  {id:40,f:46195,c:"David Lagunilla",   conc:"Cuota 3/3",       i:130,m:"Stripe",n:""},
+  {id:41,f:46197,c:"Gema Cima",         conc:"Programa completo",i:697,m:"PayPal",n:""},
+  {id:42,f:46203,c:"Andrea Martín",     conc:"Cuota 1/3",       i:232,m:"Stripe",n:""},
+  {id:43,f:46206,c:"David Llorens",     conc:"Cuota 1/3",       i:232,m:"Stripe",n:""},
+  {id:44,f:46210,c:"Adrián López",      conc:"Cuota 3/6",       i:100,m:"Bizum", n:""},
+];
+
+// ─── NOTION SYNC ──────────────────────────────────
+const NOTION_TITLE = "FTR — App Data";
+const NOTION_URL   = "https://mcp.notion.com/mcp";
+let notionPageId   = null;
+
+async function callClaude(prompt, maxTokens) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: maxTokens || 2000,
+      mcp_servers: [{ type: "url", url: NOTION_URL, name: "notion" }],
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  const data = await res.json();
+  const text = (data.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("");
+  const patterns = [/```json\s*([\s\S]*?)\s*```/, /```\s*([\s\S]*?)\s*```/, /(\{[\s\S]*\})/];
+  for (const p of patterns) {
+    const m = text.match(p);
+    if (m) { try { return JSON.parse(m[1]); } catch {} }
+  }
+  return { raw: text };
+}
+
+async function notionInit() {
+  if (notionPageId) return notionPageId;
+  const res = await callClaude(
+    `Search Notion for a page titled exactly "${NOTION_TITLE}". If found: return {"found":true,"pageId":"<id>"} If not found: create a blank page with that title and return {"found":false,"pageId":"<id>"} Return ONLY valid JSON.`
+  );
+  notionPageId = res?.pageId || null;
+  return notionPageId;
+}
+
+async function notionLoad() {
+  const pid = await notionInit();
+  if (!pid) throw new Error("No page");
+  const res = await callClaude(
+    `Fetch Notion page "${pid}". Find any text block containing JSON starting with "{". If found: return {"data":<the JSON object>} If empty: return {"data":null}`,
+    4000
+  );
+  return res?.data || null;
+}
+
+async function notionSave(appData) {
+  const pid = await notionInit();
+  if (!pid) throw new Error("No page");
+  await callClaude(
+    `Update Notion page "${pid}". Delete ALL existing content. Add ONE paragraph block with exactly this text: ${JSON.stringify(appData)} Return {"success":true}`,
+    1000
+  );
+}
+
+// ─── STORAGE HOOK ─────────────────────────────────
+const SK  = "ftr_v1";
+const DEF = { notes:{}, optDone:{}, renDone:{}, checks:{}, cobrosExtra:[], raceOvr:{}, clientesExtra:[], overrides:{}, notionPageId:null };
+const SYNC = { INIT:"init", LOADING:"loading", SYNCED:"synced", SAVING:"saving", ERROR:"error" };
+
+function useStore() {
+  const [data, setData]     = useState(DEF);
+  const [ready, setReady]   = useState(false);
+  const [sync, setSync]     = useState(SYNC.INIT);
+  const [lastSync, setLastSync] = useState(null);
+  const saveTimer  = useRef(null);
+  const latestData = useRef(data);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = (() => { try { const v = localStorage.getItem(SK); return v ? { value: v } : null; } catch { return null; } })();
+        if (r?.value) {
+          const p = { ...DEF, ...JSON.parse(r.value) };
+          setData(p);
+          latestData.current = p;
+          if (p.notionPageId) notionPageId = p.notionPageId;
+        }
+      } catch {}
+      setReady(true);
+      setSync(SYNC.LOADING);
+      try {
+        const nd = await notionLoad();
+        if (nd) {
+          const m = { ...DEF, ...nd };
+          setData(m);
+          latestData.current = m;
+          try { localStorage.setItem(SK, JSON.stringify(m)); } catch {}
+        }
+        if (notionPageId) {
+          setData(p => { const n = {...p, notionPageId}; latestData.current = n; return n; });
+        }
+        setSync(SYNC.SYNCED);
+        setLastSync(new Date());
+      } catch (e) {
+        console.warn("Notion load:", e.message);
+        setSync(SYNC.ERROR);
+      }
+    })();
+  }, []);
+
+  const upd = useCallback((fn) => {
+    setData(prev => {
+      const next = { ...prev, ...fn(prev) };
+      latestData.current = next;
+      try { localStorage.setItem(SK, JSON.stringify(next)); } catch {}
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      setSync(SYNC.SAVING);
+      saveTimer.current = setTimeout(async () => {
+        try {
+          await notionSave(latestData.current);
+          setSync(SYNC.SYNCED);
+          setLastSync(new Date());
+        } catch (e) {
+          console.warn("Notion save:", e.message);
+          setSync(SYNC.ERROR);
+        }
+      }, 2500);
+      return next;
+    });
+  }, []);
+
+  const forceSync = useCallback(async () => {
+    setSync(SYNC.SAVING);
+    try {
+      await notionSave(latestData.current);
+      setSync(SYNC.SYNCED);
+      setLastSync(new Date());
+    } catch {
+      setSync(SYNC.ERROR);
+    }
+  }, []);
+
+  const exportJSON = useCallback(() => {
+    const b = new Blob([JSON.stringify(latestData.current, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(b);
+    a.download = `ftr-backup-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+  }, []);
+
+  return { data, upd, ready, sync, lastSync, forceSync, exportJSON };
+}
+
+// ─── SHARED UI ────────────────────────────────────
+const Tag = ({ bg, fg, children, small }) => (
+  <span style={{ background:bg, color:fg, fontSize:small?10:11, fontWeight:600, padding:small?"1px 6px":"2px 9px", borderRadius:20, whiteSpace:"nowrap" }}>
+    {children}
+  </span>
+);
+
+const Btn = ({ onClick, children, variant, style }) => {
+  const variants = {
+    primary: { bg:B, fg:"white" },
+    success: { bg:"#dcfce7", fg:"#15803d" },
+    danger:  { bg:"#fee2e2", fg:"#dc2626" },
+    default: { bg:"#f3f4f6", fg:"#374151" },
+  };
+  const v = variants[variant] || variants.default;
+  return (
+    <button
+      onClick={onClick}
+      style={{ padding:"7px 14px", borderRadius:8, border:"none", cursor:"pointer", fontSize:12, fontFamily:"inherit", fontWeight:600, background:v.bg, color:v.fg, transition:"opacity .15s", ...(style||{}) }}
+      onMouseEnter={e => e.currentTarget.style.opacity = ".8"}
+      onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+    >
+      {children}
+    </button>
+  );
+};
+
+const Bar = ({ pct, h, color }) => (
+  <div style={{ height:h||5, background:"#f0f0f0", borderRadius:3, overflow:"hidden" }}>
+    <div style={{ height:"100%", width:`${Math.min((pct||0)*100,100)}%`, background:color||B, borderRadius:3, transition:"width .4s" }} />
+  </div>
+);
+
+const SemTag = ({ sem, dr }) => {
+  const cfg = { "🔴":["#fee2e2","#dc2626"], "🟡":["#fef9c3","#ca8a04"], "🟢":["#dcfce7","#16a34a"], "⚫":["#f3f4f6","#9ca3af"] };
+  const [bg, fg] = cfg[sem] || cfg["⚫"];
+  return <span style={{ background:bg, color:fg, fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:20, whiteSpace:"nowrap" }}>{sem} {dr>0?`${dr}d`:"Fin"}</span>;
+};
+
+const Section = ({ title, count, children, action }) => (
+  <div style={{ marginBottom:22 }}>
+    <div style={{ fontSize:11, fontWeight:700, color:"#9ca3af", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:10, display:"flex", alignItems:"center", gap:8 }}>
+      {title}
+      {count !== undefined && <span style={{ background:B, color:"white", fontSize:10, padding:"1px 7px", borderRadius:20 }}>{count}</span>}
+      {action && <div style={{ marginLeft:"auto" }}>{action}</div>}
+    </div>
+    {children}
+  </div>
+);
+
+const IS = { border:"1.5px solid #e5e7eb", borderRadius:8, padding:"8px 12px", fontSize:12, fontFamily:"inherit", outline:"none", color:"#374151", width:"100%", boxSizing:"border-box" };
+
+const FInput = ({ label, value, onChange, placeholder }) => (
+  <div>
+    {label && <div style={{ fontSize:10, fontWeight:600, color:"#6b7280", marginBottom:4, textTransform:"uppercase", letterSpacing:"0.05em" }}>{label}</div>}
+    <input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={IS}
+      onFocus={e=>e.target.style.borderColor=B} onBlur={e=>e.target.style.borderColor="#e5e7eb"} />
+  </div>
+);
+
+const FSelect = ({ label, value, onChange, options }) => (
+  <div>
+    {label && <div style={{ fontSize:10, fontWeight:600, color:"#6b7280", marginBottom:4, textTransform:"uppercase", letterSpacing:"0.05em" }}>{label}</div>}
+    <select value={value} onChange={e=>onChange(e.target.value)} style={{ ...IS, background:"white" }}>
+      {options.map(o => <option key={o.v||o} value={o.v||o}>{o.l||o}</option>)}
+    </select>
+  </div>
+);
+
+const EC = { "Activo":[BL,B], "Renovado":["#ede9fe","#7c3aed"], "Pendiente":["#fff7ed","#ea580c"], "Finalizado":["#f3f4f6","#6b7280"], "Baja":["#fee2e2","#dc2626"] };
+const MC = { "Stripe":["#ede9fe","#6d28d9"], "PayPal":["#dbeafe","#1e40af"], "Bizum":["#dcfce7","#15803d"], "Efectivo":["#fef9c3","#854d0e"] };
+
+const genMsg = (c, d) => {
+  const name = c.nombre.split(" ")[0];
+  const form = d.isMensual ? "📋 *formulario mensual*" : "📝 *formulario semanal*";
+  const race = d.nextRace && d.raceDays > 0 && d.raceDays <= 14
+    ? `\n🏁 Recuerda que la *${d.nextRace.name}* es el *${fdS(d.nextRace.date)}* (${d.raceDays} días). Esta semana te mando la tabla de competición.`
+    : "";
+  return `Hola ${name} 👋\n\n¡Buenos días! Ya estamos en la *semana ${d.sc}* de tu programa 🏃\n\n¿Qué tal fue la semana? Cuéntame: energía, digestiones, cómo se sintió el cuerpo en los entrenos...${race}\n\nRecuerda rellenar el ${form} esta semana para que pueda ajustar tu planificación 🔑\n\nSi necesitas cualquier cambio en el menú, me dices y lo tenemos listo enseguida 🥗\n\n¡Vamos a por ello! 💪\nFer — Fuel to Run`;
+};
+
+// ─── SYNC BADGE ───────────────────────────────────
+function SyncBadge({ sync, lastSync, onForce, onExport }) {
+  const [open, setOpen] = useState(false);
+  const cfg = {
+    [SYNC.INIT]:    { icon:"🔵", label:"Iniciando...",    col:"rgba(255,255,255,.6)" },
+    [SYNC.LOADING]: { icon:"🔄", label:"Cargando Notion", col:"rgba(255,255,255,.6)" },
+    [SYNC.SAVING]:  { icon:"🟡", label:"Guardando...",    col:"#fde68a" },
+    [SYNC.SYNCED]:  { icon:"🟢", label:"Sincronizado",    col:"#d1fae5" },
+    [SYNC.ERROR]:   { icon:"🔴", label:"Sin Notion",      col:"#fecaca" },
+  };
+  const { icon, label, col } = cfg[sync] || cfg[SYNC.ERROR];
+  return (
+    <div style={{ position:"relative" }}>
+      <button onClick={() => setOpen(!open)}
+        style={{ background:"rgba(255,255,255,.15)", border:"none", borderRadius:20, padding:"4px 10px", cursor:"pointer", fontSize:11, color:"white", display:"flex", alignItems:"center", gap:5, fontFamily:"inherit" }}>
+        <span>{icon}</span>
+        <span style={{ color:col }}>{label}</span>
+        {lastSync && sync===SYNC.SYNCED && (
+          <span style={{ opacity:.6, fontSize:10 }}>{lastSync.toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}</span>
+        )}
+      </button>
+      {open && (
+        <div style={{ position:"absolute", right:0, top:"calc(100% + 6px)", background:"white", borderRadius:10, padding:12, boxShadow:"0 8px 24px rgba(0,0,0,.15)", minWidth:180, zIndex:200 }}>
+          <div style={{ fontSize:11, color:"#6b7280", marginBottom:8 }}>Sincronización con Notion</div>
+          {sync===SYNC.ERROR && (
+            <div style={{ background:"#fee2e2", color:"#dc2626", fontSize:11, padding:"6px 8px", borderRadius:6, marginBottom:8 }}>
+              Error al conectar. Los datos están guardados localmente.
+            </div>
+          )}
+          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+            <Btn onClick={() => { onForce(); setOpen(false); }} variant="primary" style={{ fontSize:11, padding:"6px 12px" }}>🔄 Sincronizar ahora</Btn>
+            <Btn onClick={() => { onExport(); setOpen(false); }} style={{ fontSize:11, padding:"6px 12px" }}>💾 Descargar backup</Btn>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── ADD CLIENT MODAL ─────────────────────────────
+function AddClientModal({ onClose, upd, prefill }) {
+  const [nombre,   setNombre]   = useState(prefill?.nombre || "");
+  const [mod,      setMod]      = useState(prefill?.mod    || "3 meses");
+  const [fecha,    setFecha]    = useState(fd(TODAY));
+  const [imp,      setImp]      = useState(prefill?.imp ? String(prefill.imp) : "");
+  const [frac,     setFrac]     = useState("No");
+  const [nCuotas,  setNCuotas]  = useState("3");
+  const [met,      setMet]      = useState("Stripe");
+  const [pago,     setPago]     = useState("✅ Pagado");
+  const [objC,     setObjC]     = useState("");
+  const [objL,     setObjL]     = useState("");
+  const [err,      setErr]      = useState("");
+
+  const isRenewal = !!prefill?.renov;
+  const isFrac    = frac === "Sí";
+  const nC        = parseInt(nCuotas) || 3;
+  const total     = parseFloat(imp) || 0;
+  const amtEach   = nC > 0 && total > 0 ? Math.round(total / nC) : 0;
+
+  const submit = () => {
+    if (!nombre.trim()) return setErr("El nombre es obligatorio");
+    if (!fecha)         return setErr("La fecha de inicio es obligatoria");
+    if (!imp)           return setErr("El importe es obligatorio");
+    const fi = dateStrToSerial(fecha);
+    if (!fi) return setErr("Formato de fecha incorrecto (dd/mm/aaaa)");
+    const st = getStFromMod(mod);
+    const entry = {
+      id: Date.now(), nombre: nombre.trim(), estado: "Activo",
+      renov: prefill?.renov || 0, sp: prefill?.sp || 0,
+      objC, objL, raceDate: null, raceName: "",
+      mod, imp: total, frac, met, pago, fi, st,
+    };
+    const n = isFrac ? nC : 1;
+    const cobros = Array.from({ length: n }, (_, i) => ({
+      id: Date.now()+i+1,
+      f: i === 0 ? fi : fi+i*30,
+      c: entry.nombre,
+      conc: n === 1 ? "Programa completo" : `Cuota ${i+1}/${n}`,
+      i: i === n-1 ? total - amtEach*(n-1) : amtEach,
+      m: met, n: "", estado: i === 0 ? "cobrado" : "pendiente",
+    }));
+    upd(p => ({
+      ...p,
+      clientesExtra: [...(p.clientesExtra||[]), entry],
+      cobrosExtra:   [...(p.cobrosExtra||[]),   ...cobros],
+    }));
+    onClose();
+  };
+
+  return (
+    <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", zIndex:1100, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:"white", borderRadius:18, padding:24, maxWidth:520, width:"100%", maxHeight:"90vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.2)" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+          <div>
+            <div style={{ fontSize:18, fontWeight:700, color:"#111827" }}>{isRenewal ? `🔄 Renovación — ${prefill.nombre}` : "➕ Nuevo cliente"}</div>
+            {isRenewal && <div style={{ fontSize:12, color:"#9ca3af", marginTop:3 }}>Renovación {prefill.renov} · Semanas previas: {prefill.sp}</div>}
+          </div>
+          <button onClick={onClose} style={{ background:"#f3f4f6", border:"none", borderRadius:8, width:30, height:30, cursor:"pointer", color:"#6b7280", fontSize:16 }}>✕</button>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
+          {!isRenewal && (
+            <div style={{ gridColumn:"1/-1" }}>
+              <FInput label="Nombre completo *" value={nombre} onChange={setNombre} placeholder="Nombre Apellido" />
+            </div>
+          )}
+          <FSelect label="Modalidad *" value={mod} onChange={setMod} options={MODS.map(m=>({v:m,l:m}))} />
+          <FInput  label="Fecha inicio *" value={fecha} onChange={setFecha} placeholder="dd/mm/aaaa" />
+          <FInput  label="Importe total (€) *" value={imp} onChange={setImp} placeholder="597" />
+          <FSelect label="Método de pago" value={met} onChange={setMet} options={["Stripe","PayPal","Bizum","Efectivo"]} />
+          <FSelect label="Pago" value={isFrac?"Fraccionado":"Único"} onChange={v=>setFrac(v==="Fraccionado"?"Sí":"No")} options={["Único","Fraccionado"]} />
+          {!isRenewal && (
+            <>
+              <div style={{ gridColumn:"1/-1" }}><FInput label="Objetivo corto plazo" value={objC} onChange={setObjC} placeholder="Ej: Bajar 5kg antes del verano" /></div>
+              <div style={{ gridColumn:"1/-1" }}><FInput label="Objetivo largo plazo"  value={objL} onChange={setObjL} placeholder="Ej: Completar la maratón de Valencia" /></div>
+            </>
+          )}
+        </div>
+
+        {isFrac && (
+          <div style={{ background:BL, borderRadius:10, padding:"14px 16px", marginBottom:12 }}>
+            <div style={{ fontSize:11, fontWeight:700, color:BD, letterSpacing:"0.06em", textTransform:"uppercase", marginBottom:10 }}>💳 Cuotas</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+              <FSelect label="Número de cuotas" value={nCuotas} onChange={setNCuotas} options={["2","3","4","6"]} />
+              <div>
+                <div style={{ fontSize:10, fontWeight:600, color:"#6b7280", marginBottom:4, textTransform:"uppercase", letterSpacing:"0.05em" }}>Importe por cuota</div>
+                <div style={{ padding:"9px 12px", background:"white", borderRadius:8, border:"1.5px solid #e5e7eb", fontSize:14, fontWeight:700, color:BD }}>€{amtEach||"—"}</div>
+              </div>
+            </div>
+            {Array.from({ length: nC }, (_, i) => {
+              const amt = i===nC-1 ? total-amtEach*(nC-1) : amtEach;
+              return (
+                <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"5px 8px", background:i===0?"#dcfce7":"#fef9c3", borderRadius:6, marginBottom:4, fontSize:11 }}>
+                  <span style={{ fontWeight:600, color:i===0?"#15803d":"#92400e" }}>{i===0?"✅":"⏳"} Cuota {i+1}/{nC}</span>
+                  <span style={{ fontWeight:700, color:i===0?"#15803d":"#ca8a04" }}>€{amt}</span>
+                  <Tag bg={i===0?"#dcfce7":"#fef9c3"} fg={i===0?"#15803d":"#ca8a04"} small>{i===0?"Cobrada":"Pendiente"}</Tag>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {!isFrac && imp && (
+          <div style={{ background:"#f0fdf4", borderRadius:10, padding:"10px 14px", marginBottom:12, fontSize:12, color:"#15803d", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <span>✅ Se creará un cobro de <strong>€{total}</strong> como cobrado</span>
+            <Tag bg="#dcfce7" fg="#15803d">Pago único</Tag>
+          </div>
+        )}
+
+        {isRenewal && (
+          <div style={{ background:BL, borderRadius:8, padding:"10px 14px", marginBottom:12, fontSize:12, color:BD }}>
+            ℹ️ El ciclo actual se marcará como <strong>Renovado</strong> y se creará el nuevo ciclo.
+          </div>
+        )}
+
+        {err && <div style={{ background:"#fee2e2", color:"#dc2626", borderRadius:8, padding:"8px 12px", fontSize:12, marginBottom:12 }}>⚠ {err}</div>}
+
+        <div style={{ display:"flex", gap:8 }}>
+          <Btn onClick={submit} variant="primary" style={{ flex:1, padding:10 }}>{isRenewal ? "🔄 Confirmar renovación" : "✅ Añadir cliente"}</Btn>
+          <Btn onClick={onClose}>Cancelar</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── CLIENT MODAL ─────────────────────────────────
+function ClientModal({ c, d, data, upd, onClose, onRenew, pendingRenewal }) {
+  const [note,       setNote]       = useState(data.notes[c.id]||"");
+  const [showMsg,    setShowMsg]    = useState(false);
+  const [copied,     setCopied]     = useState(false);
+  const [newRaceName,setNewRaceName]= useState("");
+  const [newRaceDate,setNewRaceDate]= useState("");
+  const [editIdx,    setEditIdx]    = useState(null);
+  const [editName,   setEditName]   = useState("");
+  const [editDate,   setEditDate]   = useState("");
+  // Inline early renewal form
+  const [showEarly,    setShowEarly]    = useState(false);
+  const [earlyMod,     setEarlyMod]     = useState(c.mod);
+  const [earlyFecha,   setEarlyFecha]   = useState(fd(d.ff));
+  const [earlyImp,     setEarlyImp]     = useState("");
+  const [earlyFrac,    setEarlyFrac]    = useState("No");
+  const [earlyNCuotas, setEarlyNCuotas] = useState("3");
+  const [earlyMet,     setEarlyMet]     = useState(c.met || "Stripe");
+  const [earlyErr,     setEarlyErr]     = useState("");
+
+  const renDone = data.renDone[c.id];
+  const [bg, fg] = EC[c.estado] || EC["Finalizado"];
+  const isActive = c.estado === "Activo";
+  // Early renewal computed values
+  const earlyIsFrac    = earlyFrac === "Sí";
+  const earlyNC        = parseInt(earlyNCuotas) || 3;
+  const earlyTotal     = parseFloat(earlyImp) || 0;
+  const earlyAmtEach   = earlyNC > 0 && earlyTotal > 0 ? Math.round(earlyTotal / earlyNC) : 0;
+  const earlyStartSerial = dateStrToSerial(earlyFecha);
+  const submitEarly = () => {
+    if (!earlyImp)         return setEarlyErr("El importe es obligatorio");
+    if (!earlyStartSerial) return setEarlyErr("Fecha incorrecta — usa dd/mm/aaaa");
+    const st = getStFromMod(earlyMod);
+    const entry = {
+      id: Date.now(), nombre: c.nombre, estado: "Pendiente",
+      renov: (c.renov||0)+1, sp: (c.sp||0)+c.st,
+      objC: c.objC, objL: c.objL, raceDate: null, raceName: "",
+      mod: earlyMod, imp: earlyTotal, frac: earlyFrac, met: earlyMet,
+      pago: "✅ Pagado", fi: earlyStartSerial, st,
+    };
+    const n = earlyIsFrac ? earlyNC : 1;
+    const cobros = Array.from({ length: n }, (_, i) => ({
+      id: Date.now()+i+1, f: TODAY, c: c.nombre,
+      conc: n===1 ? `Renovación anticipada · ${earlyMod}` : `Renovación anticipada Cuota ${i+1}/${n}`,
+      i: i===n-1 ? earlyTotal-earlyAmtEach*(n-1) : earlyAmtEach,
+      m: earlyMet, n: `Programa inicia ${fd(earlyStartSerial)}`,
+      estado: i===0 ? "cobrado" : "pendiente",
+    }));
+    upd(p => ({
+      ...p,
+      clientesExtra: [...(p.clientesExtra||[]), entry],
+      cobrosExtra:   [...(p.cobrosExtra||[]),   ...cobros],
+    }));
+    setShowEarly(false);
+  };
+  const msg = genMsg(c, d);
+
+  const saveNote     = () => upd(p => ({ ...p, notes: { ...p.notes, [c.id]: note } }));
+  const toggleRen    = () => upd(p => ({ ...p, renDone: { ...p.renDone, [c.id]: !renDone } }));
+  const toggleOpt    = (w) => upd(p => ({ ...p, optDone: { ...p.optDone, [`${c.id}_${w}`]: !p.optDone[`${c.id}_${w}`] } }));
+  const changeEstado = (e) => upd(p => ({ ...p, overrides: { ...p.overrides, [c.id]: { ...(p.overrides[c.id]||{}), estado:e } } }));
+  const copy = () => navigator.clipboard.writeText(msg).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+
+  const setRaces = (races) => upd(p => ({ ...p, raceOvr: { ...p.raceOvr, [c.id]: { ...(p.raceOvr[c.id]||{}), races } } }));
+  const addRace = () => {
+    if (!newRaceName.trim() || !newRaceDate) return;
+    const serial = dateStrToSerial(newRaceDate);
+    if (!serial) return;
+    setRaces([...d.races, { date:serial, name:newRaceName.trim() }].sort((a,b)=>a.date-b.date));
+    setNewRaceName(""); setNewRaceDate("");
+  };
+  const deleteRace = (i) => { const r=[...d.races]; r.splice(i,1); setRaces(r); };
+  const startEditRace = (i, r) => { setEditIdx(i); setEditName(r.name); setEditDate(fd(r.date)); };
+  const saveEditRace = () => {
+    const serial = dateStrToSerial(editDate);
+    if (!serial) return;
+    const r = [...d.races]; r[editIdx] = { date:serial, name:editName };
+    setRaces(r.sort((a,b)=>a.date-b.date));
+    setEditIdx(null);
+  };
+
+  return (
+    <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:16, overflowY:"auto" }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:"white", borderRadius:18, padding:24, maxWidth:580, width:"100%", maxHeight:"92vh", overflowY:"auto", boxShadow:"0 20px 60px rgba(0,0,0,.2)" }}>
+
+        {/* Header */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
+          <div>
+            <div style={{ fontSize:20, fontWeight:700, color:"#111827" }}>{c.nombre}</div>
+            {c.renov > 0 && <div style={{ fontSize:11, color:"#9ca3af", marginTop:2 }}>Renovación {c.renov} · Semana global {d.sg}</div>}
+            <div style={{ display:"flex", gap:6, marginTop:8, flexWrap:"wrap" }}>
+              <Tag bg={bg} fg={fg}>{c.estado}</Tag>
+              <SemTag sem={d.sem} dr={d.dr} />
+              {c.pago.includes("Pendiente") && <Tag bg="#fef9c3" fg="#ca8a04">⚠ Pago pendiente</Tag>}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background:"#f3f4f6", border:"none", borderRadius:8, width:30, height:30, cursor:"pointer", color:"#6b7280", fontSize:16 }}>✕</button>
+        </div>
+
+        {/* Progress */}
+        <div style={{ background:BL, borderRadius:10, padding:"12px 16px", marginBottom:16 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:6 }}>
+            <span style={{ fontWeight:600, color:BD }}>S{d.sc} de {c.st} · {c.mod}</span>
+            <span style={{ color:BD }}>{Math.round(d.pct*100)}% · {d.dr>0?`${d.dr} días`:"Finalizado"}</span>
+          </div>
+          <Bar pct={d.pct} h={8} />
+          <div style={{ display:"flex", justifyContent:"space-between", fontSize:10, color:"#9ca3af", marginTop:5 }}>
+            <span>Inicio: {fd(c.fi)}</span><span>Fin: {fd(d.ff)}</span>
+          </div>
+        </div>
+
+        {/* Seguimiento */}
+        <div style={{ marginBottom:16 }}>
+          <div style={{ fontSize:10, fontWeight:700, color:"#9ca3af", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8 }}>📊 Seguimiento</div>
+          <a
+            href={`${NETLIFY}?name=${encodeURIComponent(c.nombre)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display:"flex", alignItems:"center", justifyContent:"space-between", background:BL, borderRadius:10, padding:"12px 16px", textDecoration:"none", border:`1px solid ${B}33` }}
+          >
+            <div>
+              <div style={{ fontSize:13, fontWeight:600, color:BD }}>Ver gráficas de seguimiento</div>
+              <div style={{ fontSize:11, color:"#6b7280", marginTop:2 }}>Peso, cumplimiento, energía y victorias</div>
+            </div>
+            <span style={{ fontSize:20 }}>📊 →</span>
+          </a>
+        </div>
+
+        {/* Info */}
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:14 }}>
+          {[["Importe",`${c.imp}€`],["Método",c.met],["Pago",c.pago.replace("✅ ","").replace("⏳ ","")],["Fraccionado",c.frac],["Renovaciones",c.renov],["Sem. global",d.sg]].map(([k,v])=>(
+            <div key={k} style={{ background:"#f9fafb", borderRadius:8, padding:"8px 12px" }}>
+              <div style={{ fontSize:10, color:"#9ca3af", fontWeight:500 }}>{k}</div>
+              <div style={{ fontSize:12, fontWeight:600, color:"#374151", marginTop:2 }}>{v}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Objectives */}
+        {(c.objC || c.objL) && (
+          <div style={{ marginBottom:14 }}>
+            <div style={{ fontSize:10, fontWeight:700, color:"#9ca3af", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8 }}>Objetivos</div>
+            {c.objC && <div style={{ background:BL, borderRadius:8, padding:"8px 12px", fontSize:12, marginBottom:6 }}><span style={{ fontWeight:600, color:BD }}>Corto: </span>{c.objC}</div>}
+            {c.objL && <div style={{ background:"#f0fdf4", borderRadius:8, padding:"8px 12px", fontSize:12 }}><span style={{ fontWeight:600, color:"#16a34a" }}>Largo: </span>{c.objL}</div>}
+          </div>
+        )}
+
+        {/* Races */}
+        <div style={{ marginBottom:14 }}>
+          <div style={{ fontSize:10, fontWeight:700, color:"#9ca3af", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8 }}>🏁 Competiciones</div>
+          {d.races.length > 0 && (
+            <div style={{ display:"flex", flexDirection:"column", gap:5, marginBottom:8 }}>
+              {d.races.map((r, i) => {
+                const days = r.date - TODAY, past = days <= 0;
+                if (editIdx === i) {
+                  return (
+                    <div key={i} style={{ background:BL, borderRadius:8, padding:"8px 10px", display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
+                      <input value={editName} onChange={e=>setEditName(e.target.value)} style={{ ...IS, flex:2, minWidth:100, padding:"5px 8px", fontSize:11 }} />
+                      <input value={editDate} onChange={e=>setEditDate(e.target.value)} placeholder="dd/mm/aaaa" style={{ ...IS, flex:1, minWidth:90, padding:"5px 8px", fontSize:11 }} />
+                      <Btn onClick={saveEditRace} variant="primary" style={{ padding:"5px 10px", fontSize:11 }}>✓</Btn>
+                      <Btn onClick={() => setEditIdx(null)} style={{ padding:"5px 10px", fontSize:11 }}>✕</Btn>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={i} style={{ background:past?"#f9fafb":"#fff7ed", borderRadius:8, padding:"8px 12px", display:"flex", justifyContent:"space-between", alignItems:"center", border:`1px solid ${past?"#f0f0f0":"#fed7aa"}` }}>
+                    <div style={{ fontSize:12 }}>
+                      <span style={{ fontWeight:600, color:past?"#9ca3af":"#ea580c" }}>{r.name}</span>
+                      {" · "}
+                      <span style={{ color:"#6b7280", fontSize:11 }}>{fd(r.date)}</span>
+                    </div>
+                    <div style={{ display:"flex", gap:4, alignItems:"center" }}>
+                      {!past && <Tag bg={days<=7?"#fee2e2":days<=14?"#fef9c3":"#dcfce7"} fg={days<=7?"#dc2626":days<=14?"#ca8a04":"#16a34a"} small>{days}d</Tag>}
+                      {past  && <Tag bg="#f3f4f6" fg="#9ca3af" small>Pasada</Tag>}
+                      <button onClick={() => startEditRace(i, r)} style={{ background:"none", border:"none", cursor:"pointer", color:"#9ca3af", fontSize:12, padding:"0 2px" }}>✏️</button>
+                      <button onClick={() => deleteRace(i)} style={{ background:"none", border:"none", cursor:"pointer", color:"#9ca3af", fontSize:12, padding:"0 2px" }}>🗑</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+            <input value={newRaceName} onChange={e=>setNewRaceName(e.target.value)} placeholder="Nombre carrera" style={{ ...IS, flex:2, minWidth:120, padding:"6px 10px", fontSize:12 }} />
+            <input value={newRaceDate} onChange={e=>setNewRaceDate(e.target.value)} placeholder="dd/mm/aaaa" style={{ ...IS, flex:1, minWidth:100, padding:"6px 10px", fontSize:12 }} />
+            <Btn onClick={addRace} variant="primary" style={{ padding:"6px 12px", fontSize:11 }}>+ Añadir</Btn>
+          </div>
+        </div>
+
+        {/* Calls */}
+        <div style={{ marginBottom:14 }}>
+          <div style={{ fontSize:10, fontWeight:700, color:"#9ca3af", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8 }}>Llamadas</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+            <div style={{ background:renDone?"#f0fdf4":d.isRenNow?"#fee2e2":"#f9fafb", borderRadius:8, padding:"8px 12px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <span style={{ fontSize:12, fontWeight:d.isRenNow&&!renDone?700:400, color:renDone?"#15803d":d.isRenNow?"#dc2626":"#374151" }}>
+                🔔 Renovación S{d.rw}{d.isRenNow&&!renDone?" ← ESTA SEMANA":""}
+              </span>
+              <Btn onClick={toggleRen} variant={renDone?"success":"default"} style={{ padding:"4px 10px", fontSize:11 }}>{renDone?"✓ Realizada":"Marcar hecha"}</Btn>
+            </div>
+            {d.ow.map(w => {
+              const done = data.optDone[`${c.id}_${w}`], isNow = w===d.sg;
+              return (
+                <div key={w} style={{ background:done?"#f0fdf4":isNow?"#fff7ed":"#f9fafb", borderRadius:8, padding:"8px 12px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <span style={{ fontSize:12, fontWeight:isNow&&!done?700:400, color:done?"#15803d":isNow?"#ea580c":"#374151" }}>
+                    📞 Optimización S{w}{isNow&&!done?" ← AHORA":""}
+                  </span>
+                  <Btn onClick={() => toggleOpt(w)} variant={done?"success":"default"} style={{ padding:"4px 10px", fontSize:11 }}>{done?"✓ Realizada":"Marcar hecha"}</Btn>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Estado */}
+        <div style={{ marginBottom:14 }}>
+          <div style={{ fontSize:10, fontWeight:700, color:"#9ca3af", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8 }}>Estado del ciclo</div>
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:isActive?8:0 }}>
+            {["Activo","Finalizado","Baja"].map(e => {
+              const [ebg,efg] = EC[e] || ["#f3f4f6","#6b7280"];
+              const active = c.estado === e;
+              return (
+                <button key={e} onClick={() => !active && changeEstado(e)}
+                  style={{ padding:"5px 12px", borderRadius:20, border:`2px solid ${active?efg:"#e5e7eb"}`, background:active?efg:"white", color:active?"white":"#6b7280", cursor:active?"default":"pointer", fontSize:11, fontFamily:"inherit", fontWeight:active?600:400, transition:"all .15s" }}>
+                  {e}
+                </button>
+              );
+            })}
+          </div>
+          {isActive && (
+            <>
+              {/* Already has early renewal registered */}
+              {pendingRenewal && (
+                <div style={{ background:"#f0fdf4", borderRadius:10, padding:"12px 14px", marginBottom:8, border:"1px solid #bbf7d0" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                    <div>
+                      <div style={{ fontSize:12, fontWeight:700, color:"#15803d" }}>✅ Renovación anticipada registrada</div>
+                      <div style={{ fontSize:11, color:"#16a34a", marginTop:2 }}>
+                        {pendingRenewal.mod} · €{pendingRenewal.imp} · inicia el {fd(pendingRenewal.fi)}
+                      </div>
+                    </div>
+                    <Tag bg="#dcfce7" fg="#15803d">🗓️ {pendingRenewal.fi - TODAY}d</Tag>
+                  </div>
+                </div>
+              )}
+              <div style={{ background:`linear-gradient(135deg,${BL},#ede9fe)`, borderRadius:10, padding:"12px 14px", display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                <div>
+                  <div style={{ fontSize:12, fontWeight:600, color:"#374151" }}>¿Ha renovado al final del programa?</div>
+                  <div style={{ fontSize:11, color:"#9ca3af", marginTop:2 }}>Marca el ciclo actual como Renovado y crea el nuevo</div>
+                </div>
+                <Btn onClick={() => { onClose(); onRenew(c); }} variant="primary" style={{ whiteSpace:"nowrap" }}>🔄 Registrar renovación</Btn>
+              </div>
+              {!pendingRenewal && (
+                <div style={{ background:"#fff7ed", borderRadius:10, border:"1px solid #fed7aa", overflow:"hidden" }}>
+                  <div style={{ padding:"12px 14px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                    <div>
+                      <div style={{ fontSize:12, fontWeight:600, color:"#ea580c" }}>💰 Renovación anticipada</div>
+                      <div style={{ fontSize:11, color:"#9ca3af", marginTop:2 }}>El cobro entra hoy · el nuevo programa empieza más adelante</div>
+                    </div>
+                    <Btn onClick={() => setShowEarly(!showEarly)} style={{ background:"#fff7ed", color:"#ea580c", border:"1.5px solid #fed7aa", whiteSpace:"nowrap" }}>
+                      {showEarly ? "▲ Cerrar" : "💰 Registrar"}
+                    </Btn>
+                  </div>
+                  {showEarly && (
+                    <div style={{ padding:"0 14px 14px" }}>
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+                        <FSelect label="Nuevo programa" value={earlyMod} onChange={setEarlyMod} options={MODS.map(m=>({v:m,l:m}))} />
+                        <FInput  label="Fecha inicio nuevo ciclo" value={earlyFecha} onChange={setEarlyFecha} placeholder="dd/mm/aaaa" />
+                        <FInput  label="Importe total (€)" value={earlyImp} onChange={setEarlyImp} placeholder="597" />
+                        <FSelect label="Método de pago" value={earlyMet} onChange={setEarlyMet} options={["Stripe","PayPal","Bizum","Efectivo"]} />
+                        <FSelect label="Pago" value={earlyIsFrac?"Fraccionado":"Único"} onChange={v=>setEarlyFrac(v==="Fraccionado"?"Sí":"No")} options={["Único","Fraccionado"]} />
+                        {earlyIsFrac && <FSelect label="Nº cuotas" value={earlyNCuotas} onChange={setEarlyNCuotas} options={["2","3","4","6"]} />}
+                      </div>
+                      {earlyTotal > 0 && (
+                        <div style={{ background:"white", borderRadius:8, padding:"10px 12px", marginBottom:10, border:"1px solid #fde68a" }}>
+                          <div style={{ fontSize:10, fontWeight:700, color:"#92400e", marginBottom:6, textTransform:"uppercase", letterSpacing:"0.05em" }}>Cobros que se registran hoy</div>
+                          {earlyIsFrac ? (
+                            Array.from({ length: earlyNC }, (_, i) => {
+                              const amt = i===earlyNC-1 ? earlyTotal-earlyAmtEach*(earlyNC-1) : earlyAmtEach;
+                              return (
+                                <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"4px 6px", background:i===0?"#dcfce7":"#fef9c3", borderRadius:5, marginBottom:3, fontSize:11 }}>
+                                  <span style={{ fontWeight:600, color:i===0?"#15803d":"#92400e" }}>{i===0?"✅ Hoy":"⏳"} Cuota {i+1}/{earlyNC}</span>
+                                  <span style={{ fontWeight:700 }}>€{amt}</span>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div style={{ display:"flex", justifyContent:"space-between", padding:"6px 8px", background:"#dcfce7", borderRadius:6, fontSize:12 }}>
+                              <span style={{ fontWeight:600, color:"#15803d" }}>✅ Cobro único hoy</span>
+                              <span style={{ fontWeight:700, color:"#15803d" }}>€{earlyTotal}</span>
+                            </div>
+                          )}
+                          {earlyStartSerial && <div style={{ fontSize:10, color:"#9ca3af", marginTop:5 }}>Nuevo ciclo inicia el {fd(earlyStartSerial)} · {earlyStartSerial-TODAY} días</div>}
+                        </div>
+                      )}
+                      {earlyErr && <div style={{ background:"#fee2e2", color:"#dc2626", borderRadius:6, padding:"6px 10px", fontSize:11, marginBottom:8 }}>⚠ {earlyErr}</div>}
+                      <Btn onClick={submitEarly} variant="primary" style={{ width:"100%", padding:9 }}>✅ Confirmar renovación anticipada</Btn>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Notes */}
+        <div style={{ marginBottom:14 }}>
+          <div style={{ fontSize:10, fontWeight:700, color:"#9ca3af", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8 }}>Notas</div>
+          <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Cambios de menú, observaciones de llamada, contexto personal..."
+            style={{ width:"100%", minHeight:70, border:"1.5px solid #e5e7eb", borderRadius:8, padding:"10px 12px", fontSize:12, fontFamily:"inherit", resize:"vertical", outline:"none", color:"#374151", boxSizing:"border-box" }}
+            onFocus={e=>e.target.style.borderColor=B}
+            onBlur={e=>{ e.target.style.borderColor="#e5e7eb"; saveNote(); }} />
+        </div>
+
+        {/* WhatsApp */}
+        <div>
+          <div style={{ fontSize:10, fontWeight:700, color:"#9ca3af", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8 }}>Mensaje WhatsApp lunes</div>
+          {!showMsg
+            ? <Btn onClick={() => setShowMsg(true)} variant="primary" style={{ width:"100%", padding:10 }}>💬 Generar mensaje</Btn>
+            : <div style={{ background:"#f9fafb", borderRadius:8, padding:12 }}>
+                <pre style={{ fontSize:12, fontFamily:"inherit", whiteSpace:"pre-wrap", color:"#374151", margin:"0 0 10px", lineHeight:1.6 }}>{msg}</pre>
+                <div style={{ display:"flex", gap:8 }}>
+                  <Btn onClick={copy} variant="primary" style={{ flex:1 }}>{copied?"✓ Copiado!":"📋 Copiar"}</Btn>
+                  <Btn onClick={() => setShowMsg(false)}>Cerrar</Btn>
+                </div>
+              </div>
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── CLIENT CARD ──────────────────────────────────
+function ClientCard({ c, d, data, onClick, isExtra, onDelete, pendingRenewal }) {
+  const [hov,        setHov]        = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [bg, fg] = EC[c.estado] || EC["Finalizado"];
+  const note = data.notes[c.id];
+
+
+  return (
+    <div
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{ background:"white", borderRadius:14, padding:16, cursor:"pointer", transition:"all .15s", position:"relative",
+        boxShadow:hov?"0 6px 20px rgba(91,165,192,.18)":"0 1px 4px rgba(0,0,0,.07)",
+        transform:hov?"translateY(-2px)":"none", border:`1px solid ${hov?B+"55":"#f0f0f0"}` }}
+    >
+      {isExtra && confirmDel && (
+        <div style={{ position:"absolute", inset:0, background:"rgba(255,255,255,.95)", borderRadius:14, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:10, zIndex:10, padding:16 }}>
+          <div style={{ fontSize:13, fontWeight:600, color:"#374151", textAlign:"center" }}>¿Eliminar a {c.nombre}?</div>
+          <div style={{ display:"flex", gap:8 }}>
+            <Btn onClick={e => { e.stopPropagation(); onDelete(c.id); }} variant="danger" style={{ padding:"6px 14px" }}>Sí, eliminar</Btn>
+            <Btn onClick={e => { e.stopPropagation(); setConfirmDel(false); }} style={{ padding:"6px 14px" }}>Cancelar</Btn>
+          </div>
+        </div>
+      )}
+      <div onClick={() => onClick(c)}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:5 }}>
+              <div style={{ fontWeight:600, fontSize:14, color:"#111827", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.nombre}</div>
+              {isExtra && hov && (
+                <button onClick={e => { e.stopPropagation(); setConfirmDel(true); }} style={{ background:"none", border:"none", cursor:"pointer", color:"#9ca3af", fontSize:11, padding:0, flexShrink:0 }}>🗑</button>
+              )}
+            </div>
+            <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+              <Tag bg={bg} fg={fg}>{c.estado}</Tag>
+              {c.renov > 0 && <Tag bg="#fef9c3" fg="#ca8a04">R{c.renov}</Tag>}
+            </div>
+          </div>
+          <SemTag sem={d.sem} dr={d.dr} />
+        </div>
+        {c.estado === "Pendiente" ? (
+          <div style={{ background:"#fff7ed", borderRadius:8, padding:"8px 12px", marginTop:8, fontSize:12 }}>
+            <div style={{ fontWeight:600, color:"#ea580c" }}>🗓️ Inicia el {fd(c.fi)}</div>
+            <div style={{ color:"#92400e", fontSize:11, marginTop:2 }}>{c.fi-TODAY} días · {c.mod}</div>
+          </div>
+        ) : (
+          <>
+            <Bar pct={d.pct} />
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6, marginTop:10, fontSize:11 }}>
+              <div><span style={{ color:"#9ca3af" }}>Semana</span><br /><b style={{ color:"#374151" }}>S{d.sc}/{c.st}</b></div>
+              <div><span style={{ color:"#9ca3af" }}>Programa</span><br /><b style={{ color:"#374151" }}>{c.mod}</b></div>
+              <div><span style={{ color:"#9ca3af" }}>Pago</span><br /><b style={{ color:c.pago.includes("Pendiente")?"#ca8a04":"#374151" }}>{c.pago.replace("✅ ","✅").replace("⏳ ","⏳")}</b></div>
+            </div>
+          </>
+        )}
+        <div style={{ marginTop:10, display:"flex", flexDirection:"column", gap:3 }}>
+          {d.isRenNow && !data.renDone[c.id] && (
+            <div style={{ background:"#fee2e2", color:"#dc2626", fontSize:10, fontWeight:700, padding:"3px 8px", borderRadius:6 }}>🔔 Llamada renovación ESTA SEMANA</div>
+          )}
+          {pendingRenewal && c.estado === "Activo" && (
+            <div style={{ background:"#dcfce7", color:"#15803d", fontSize:10, fontWeight:700, padding:"3px 8px", borderRadius:6 }}>✅ Renovación anticipada · inicia {fdS(pendingRenewal.fi)}</div>
+          )}
+          {d.isOptNow && !data.optDone[`${c.id}_${d.sg}`] && (
+            <div style={{ background:"#fff7ed", color:"#ea580c", fontSize:10, fontWeight:700, padding:"3px 8px", borderRadius:6 }}>📞 Optimización S{d.sg} AHORA</div>
+          )}
+
+          {d.nextRace && d.raceDays > 0 && d.raceDays <= 14 && (
+            <div style={{ background:"#fff7ed", color:"#ea580c", fontSize:10, fontWeight:600, padding:"3px 8px", borderRadius:6 }}>🏁 {d.nextRace.name} en {d.raceDays}d</div>
+          )}
+          {note && (
+            <div style={{ background:"#fffbeb", color:"#92400e", fontSize:10, padding:"3px 8px", borderRadius:6, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>📝 {note}</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── TAB: SEMANA ──────────────────────────────────
+function WeekTab({ clients, data, upd, onOpen }) {
+  const activos  = clients.filter(({c}) => c.estado==="Activo");
+  const renNow   = clients.filter(({c,d}) => (c.estado==="Activo"||c.estado==="Renovado"||c.estado==="Finalizado") && d.isRenNow && !data.renDone[c.id]);
+  const optNow   = clients.filter(({c,d}) => c.estado==="Activo" && d.isOptNow && !data.optDone[`${c.id}_${d.sg}`]);
+  const mensual  = activos.filter(({d}) => d.isMensual);
+  const races21  = clients.filter(({d}) => d.nextRace && d.raceDays>0 && d.raceDays<=21).sort((a,b)=>a.d.raceDays-b.d.raceDays);
+  const urgent   = renNow.length + optNow.length;
+  const today    = new Date();
+  const mon      = new Date(today); mon.setDate(today.getDate()-((today.getDay()+6)%7));
+  const sun      = new Date(mon);   sun.setDate(mon.getDate()+6);
+  const fmt      = (d) => d.toLocaleDateString("es-ES",{day:"numeric",month:"long"});
+  const toggleCheck = (cid, field) => upd(p => {
+    const k = `${cid}_${WK}`, prev = p.checks[k]||{};
+    return { ...p, checks: { ...p.checks, [k]: { ...prev, [field]: !prev[field] } } };
+  });
+
+  return (
+    <div>
+      <div style={{ background:`linear-gradient(135deg,${B},${BD})`, borderRadius:14, padding:"16px 22px", marginBottom:22, color:"white", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+        <div>
+          <div style={{ fontSize:11, opacity:.8, fontWeight:600, letterSpacing:"0.08em", textTransform:"uppercase" }}>Semana actual</div>
+          <div style={{ fontSize:17, fontWeight:700, marginTop:3 }}>{fmt(mon)} → {fmt(sun)}</div>
+        </div>
+        <div style={{ textAlign:"right" }}>
+          <div style={{ fontSize:32, fontWeight:700, lineHeight:1 }}>{urgent}</div>
+          <div style={{ fontSize:11, opacity:.8 }}>acción urgente</div>
+        </div>
+      </div>
+
+      {urgent > 0 && (
+        <Section title="Llamadas urgentes" count={urgent}>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            {renNow.map(({c,d}) => (
+              <div key={c.id} onClick={() => onOpen(c)} style={{ background:"#fee2e2", borderRadius:10, padding:"10px 16px", display:"flex", justifyContent:"space-between", alignItems:"center", cursor:"pointer", border:"1px solid #fecaca" }}>
+                <span style={{ fontSize:13 }}><span style={{ fontWeight:700, color:"#dc2626" }}>🔔 Renovación</span> · {c.nombre} <span style={{ fontSize:11, color:"#9ca3af" }}>S{d.sc}/{d.st} · {c.mod}</span></span>
+                <Tag bg="#dc2626" fg="white">S{d.rw}</Tag>
+              </div>
+            ))}
+            {optNow.map(({c,d}) => (
+              <div key={`o${c.id}`} onClick={() => onOpen(c)} style={{ background:"#fff7ed", borderRadius:10, padding:"10px 16px", display:"flex", justifyContent:"space-between", alignItems:"center", cursor:"pointer", border:"1px solid #fed7aa" }}>
+                <span style={{ fontSize:13 }}><span style={{ fontWeight:700, color:"#ea580c" }}>📞 Optimización</span> · {c.nombre} <span style={{ fontSize:11, color:"#9ca3af" }}>SG{d.sg}</span></span>
+                <Tag bg="#ea580c" fg="white">S{d.sg}</Tag>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {mensual.length > 0 && (
+        <Section title="📋 Revisión mensual esta semana" count={mensual.length}>
+          <div style={{ background:"white", borderRadius:12, boxShadow:"0 1px 4px rgba(0,0,0,.06)", overflow:"hidden" }}>
+            {mensual.map(({c,d}, i) => (
+              <div key={c.id} onClick={() => onOpen(c)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 16px", background:i%2===0?"white":"#f9fafb", borderBottom:"1px solid #f3f4f6", cursor:"pointer", fontSize:12 }}>
+                <span style={{ fontWeight:500, color:"#374151" }}>{c.nombre}</span>
+                <span style={{ color:"#9ca3af", fontSize:11 }}>S{d.sc}/{c.st} · {c.mod}</span>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+
+
+      {races21.length > 0 && (
+        <Section title="Carreras próximas 21 días" count={races21.length}>
+          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+            {races21.map(({c,d}) => (
+              <div key={c.id} onClick={() => onOpen(c)} style={{ background:"white", borderRadius:10, padding:"10px 16px", display:"flex", justifyContent:"space-between", alignItems:"center", cursor:"pointer", boxShadow:"0 1px 4px rgba(0,0,0,.06)" }}>
+                <span style={{ fontSize:13 }}><strong style={{ color:"#374151" }}>{c.nombre}</strong> · <span style={{ color:"#ea580c" }}>🏁 {d.nextRace.name}</span> · <span style={{ color:"#9ca3af", fontSize:11 }}>{fd(d.nextRace.date)}</span></span>
+                <Tag bg={d.raceDays<=7?"#fee2e2":"#fef9c3"} fg={d.raceDays<=7?"#dc2626":"#ca8a04"}>{d.raceDays}d</Tag>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      <Section title={`Checklist semanal · ${WK}`}>
+        <div style={{ background:"white", borderRadius:12, boxShadow:"0 1px 4px rgba(0,0,0,.06)", overflow:"hidden" }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 44px 44px 90px", background:B, padding:"8px 14px", fontSize:10, fontWeight:700, color:"white", textTransform:"uppercase", letterSpacing:"0.06em", gap:8 }}>
+            <div>Cliente · semana</div>
+            <div style={{ textAlign:"center" }}>✅ Resp.</div>
+            <div style={{ textAlign:"center" }}>💬 Feed.</div>
+            <div style={{ textAlign:"center" }}>🍽️ Cambios</div>
+          </div>
+          {activos.map(({c,d}, i) => {
+            const key = `${c.id}_${WK}`;
+            const ch = data.checks[key] || {};
+            const allDone = ch.resp && ch.feedback && ch.cambios;
+            const cambiosColor = ch.cambios === "Si" ? "#dc2626" : ch.cambios === "No" ? "#16a34a" : "#9ca3af";
+            const cambiosBg   = ch.cambios === "Si" ? "#fee2e2" : ch.cambios === "No" ? "#dcfce7" : "#f3f4f6";
+            return (
+              <div key={c.id} style={{ display:"grid", gridTemplateColumns:"1fr 44px 44px 90px", gap:8, padding:"8px 14px", background:allDone?"#f0fdf4":i%2===0?"white":"#f9fafb", borderBottom:"1px solid #f3f4f6", alignItems:"center" }}>
+                <div style={{ fontSize:12, fontWeight:500, color:allDone?"#15803d":"#374151", cursor:"pointer" }} onClick={() => onOpen(c)}>
+                  {c.nombre} <span style={{ fontSize:10, color:"#9ca3af" }}>S{d.sc}</span>
+                </div>
+                {["resp","feedback"].map(f => (
+                  <div key={f} style={{ textAlign:"center" }}>
+                    <button onClick={() => toggleCheck(c.id, f)}
+                      style={{ width:28, height:28, borderRadius:6, border:`2px solid ${ch[f]?"#16a34a":"#d1d5db"}`, background:ch[f]?"#16a34a":"white", cursor:"pointer", color:"white", fontSize:14, display:"inline-flex", alignItems:"center", justifyContent:"center" }}>
+                      {ch[f]?"✓":""}
+                    </button>
+                  </div>
+                ))}
+                <div style={{ textAlign:"center" }}>
+                  <select
+                    value={ch.cambios || ""}
+                    onChange={e => upd(p => {
+                      const k = `${c.id}_${WK}`, prev = p.checks[k]||{};
+                      return { ...p, checks: { ...p.checks, [k]: { ...prev, cambios: e.target.value } } };
+                    })}
+                    style={{ fontSize:11, fontWeight:600, border:"none", borderRadius:6, padding:"4px 6px", background:cambiosBg, color:cambiosColor, cursor:"pointer", outline:"none", width:"100%" }}
+                  >
+                    <option value="">—</option>
+                    <option value="Si">Sí</option>
+                    <option value="No">No</option>
+                  </select>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ fontSize:10, color:"#9ca3af", marginTop:6, textAlign:"center" }}>✅ Cliente respondió · 💬 Feedback enviado · 🍽️ Cambios en el menú</div>
+      </Section>
+    </div>
+  );
+}
+
+// ─── TAB: CLIENTES ────────────────────────────────
+function ClientsTab({ clients, data, upd, onOpen, onAddClient, getPending }) {
+  const [search, setSearch] = useState("");
+  const [estF,   setEstF]   = useState("Activo");
+  const [semF,   setSemF]   = useState("all");
+
+  const extraIds = useMemo(() => new Set((data.clientesExtra||[]).map(c=>c.id)), [data.clientesExtra]);
+
+  const deleteClient = (id) => {
+    const nombre = (data.clientesExtra||[]).find(x=>x.id===id)?.nombre;
+    upd(p => ({
+      ...p,
+      clientesExtra: (p.clientesExtra||[]).filter(c => c.id !== id),
+      cobrosExtra:   (p.cobrosExtra||[]).filter(c => c.c !== nombre),
+    }));
+  };
+
+  const filtered = useMemo(() => clients.filter(({c,d}) => {
+    if (estF!=="all" && c.estado!==estF) return false;
+    if (semF!=="all" && d.sem!==semF)    return false;
+    if (search && !c.nombre.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  }), [clients, estF, semF, search]);
+
+  return (
+    <div>
+      <div style={{ background:"white", borderRadius:12, padding:14, marginBottom:18, boxShadow:"0 1px 4px rgba(0,0,0,.06)", display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Buscar cliente..."
+          style={{ flex:1, minWidth:160, ...IS }} onFocus={e=>e.target.style.borderColor=B} onBlur={e=>e.target.style.borderColor="#e5e7eb"} />
+        <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+          {["all","Activo","Renovado","Pendiente","Finalizado","Baja"].map(e => {
+            const [bg,fg] = e==="all" ? ["#f3f4f6","#6b7280"] : EC[e]||["#f3f4f6","#6b7280"];
+            return (
+              <button key={e} onClick={() => setEstF(e)} style={{ padding:"5px 12px", borderRadius:20, border:"none", cursor:"pointer", fontSize:12, fontFamily:"inherit", fontWeight:estF===e?600:400, background:estF===e?fg:"#f3f4f6", color:estF===e?"white":"#6b7280", transition:"all .15s" }}>
+                {e==="all"?"Todos":e}
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ display:"flex", gap:5 }}>
+          {["all","🔴","🟡","🟢"].map(s => (
+            <button key={s} onClick={() => setSemF(s)} style={{ padding:"5px 10px", borderRadius:20, border:"none", cursor:"pointer", fontSize:12, fontFamily:"inherit", fontWeight:semF===s?600:400, background:semF===s?B:BL, color:semF===s?"white":BD, transition:"all .15s" }}>
+              {s==="all"?"Todos":s}
+            </button>
+          ))}
+        </div>
+        <div style={{ fontSize:11, color:"#9ca3af" }}>{filtered.length}</div>
+        <Btn onClick={onAddClient} variant="primary">➕ Nuevo cliente</Btn>
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))", gap:12 }}>
+        {filtered.map(({c,d}) => (
+          <ClientCard key={c.id} c={c} d={d} data={data} onClick={onOpen}
+            isExtra={extraIds.has(c.id)} onDelete={deleteClient} pendingRenewal={getPending ? getPending(c.nombre) : null} />
+        ))}
+        {filtered.length===0 && (
+          <div style={{ gridColumn:"1/-1", textAlign:"center", padding:"48px 0", color:"#9ca3af" }}>
+            <div style={{ fontSize:32 }}>🔍</div>
+            <div style={{ marginTop:8 }}>Sin resultados</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── TAB: LLAMADAS ────────────────────────────────
+function LlamadasTab({ clients, data, upd, onOpen }) {
+  const [showPast, setShowPast] = useState(false);
+
+  const callsByWeek = useMemo(() => {
+    const weeks = {};
+    clients.forEach(({ c, d }) => {
+      if (c.estado === "Baja") return;
+      const renW = Math.floor((c.fi + d.rw*7 - TODAY) / 7);
+      if (renW >= -4 && renW <= 9) {
+        weeks[renW] = weeks[renW] || [];
+        weeks[renW].push({ type:"ren", c, d, done: !!data.renDone[c.id] });
+      }
+      d.ow.forEach(ow => {
+        const optW = Math.floor((c.fi + (ow-(c.sp||0))*7 - TODAY) / 7);
+        if (optW >= -4 && optW <= 9) {
+          weeks[optW] = weeks[optW] || [];
+          weeks[optW].push({ type:"opt", c, d, ow, done: !!data.optDone[`${c.id}_${ow}`] });
+        }
+      });
+    });
+    return weeks;
+  }, [clients, data.renDone, data.optDone]);
+
+  const wNums   = Object.keys(callsByWeek).map(Number).sort((a,b)=>a-b);
+  const pastW   = wNums.filter(w => w < 0);
+  const futW    = wNums.filter(w => w >= 0);
+  const pastPend= pastW.reduce((s,w) => s+(callsByWeek[w]?.filter(i=>!i.done).length||0), 0);
+
+  const toggleCall = (item) => {
+    const { type, c, d, ow, done } = item;
+    if (type === "ren") upd(p => ({ ...p, renDone: { ...p.renDone, [c.id]: !done } }));
+    else                upd(p => ({ ...p, optDone: { ...p.optDone, [`${c.id}_${ow}`]: !done } }));
+  };
+
+  const CallRow = ({ item, wn }) => {
+    const { type, c, d, ow, done } = item;
+    const isRen = type === "ren";
+    const urg   = wn === 0 && !done;
+    const past  = wn < 0;
+    return (
+      <div style={{ background:done?"#f0fdf4":past?"#f9fafb":urg?(isRen?"#fee2e2":"#fff7ed"):"white", borderRadius:10, padding:"10px 14px", display:"flex", justifyContent:"space-between", alignItems:"center", boxShadow:"0 1px 4px rgba(0,0,0,.06)", border:`1px solid ${done?"#bbf7d0":urg?(isRen?"#fecaca":"#fed7aa"):"#f0f0f0"}` }}>
+        <div onClick={() => onOpen(c)} style={{ cursor:"pointer" }}>
+          <span style={{ fontSize:12, fontWeight:600, color:done?"#15803d":past?"#9ca3af":isRen?"#dc2626":"#ea580c" }}>{isRen?"🔔 Renovación":"📞 Optimización"}</span>
+          <span style={{ fontSize:13, color:"#374151", marginLeft:8 }}>{c.nombre}</span>
+          <span style={{ fontSize:11, color:"#9ca3af", marginLeft:6 }}>{isRen?`S${d.sc}/${d.st} · ${c.mod} · fin ${fd(d.ff)}`:`SG${ow} · ${c.mod}`}</span>
+        </div>
+        <Btn onClick={() => toggleCall(item)} variant={done?"success":"default"} style={{ padding:"4px 10px", fontSize:11 }}>{done?"✓ Realizada":"Marcar hecha"}</Btn>
+      </div>
+    );
+  };
+
+  const WeekBlock = ({ w, items }) => {
+    const label = w===0?"🗓️ ESTA SEMANA":w===1?"PRÓXIMA SEMANA":`+${w} semanas`;
+    const bg2   = w===0?B:w===1?"#374151":"#9ca3af";
+    return (
+      <div style={{ marginBottom:18 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
+          <span style={{ background:bg2, color:"white", fontSize:11, fontWeight:700, padding:"3px 12px", borderRadius:20, whiteSpace:"nowrap" }}>{label}</span>
+          <div style={{ flex:1, height:1, background:"#e5e7eb" }} />
+          <span style={{ fontSize:11, color:"#9ca3af" }}>{weekRange(w)}</span>
+        </div>
+        <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+          {items.map((item, i) => <CallRow key={`${item.type}_${item.c.id}_${i}`} item={item} wn={w} />)}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <div style={{ fontSize:13, color:"#6b7280", marginBottom:18 }}>Próximas 9 semanas · fechas calculadas desde la fecha real de inicio</div>
+      {pastW.length > 0 && (
+        <div style={{ marginBottom:20 }}>
+          <button onClick={() => setShowPast(!showPast)} style={{ background:"#f3f4f6", border:"none", borderRadius:10, padding:"10px 16px", cursor:"pointer", fontSize:13, fontFamily:"inherit", fontWeight:600, color:"#374151", display:"flex", alignItems:"center", gap:8, width:"100%" }}>
+            {showPast?"▼":"▶"} Llamadas pasadas
+            {pastPend > 0 && <span style={{ background:"#dc2626", color:"white", fontSize:10, padding:"1px 7px", borderRadius:20 }}>{pastPend} pendientes</span>}
+            <span style={{ marginLeft:"auto", fontSize:11, color:"#9ca3af", fontWeight:400 }}>{pastW.reduce((s,w)=>s+(callsByWeek[w]?.length||0),0)} llamadas</span>
+          </button>
+          {showPast && (
+            <div style={{ marginTop:10 }}>
+              {[...pastW].reverse().map(w => <WeekBlock key={w} w={w} items={callsByWeek[w]} />)}
+            </div>
+          )}
+        </div>
+      )}
+      {futW.length === 0
+        ? <div style={{ textAlign:"center", padding:"48px 0", color:"#9ca3af" }}><div style={{ fontSize:32 }}>📞</div><div style={{ marginTop:8 }}>Sin llamadas en las próximas 9 semanas</div></div>
+        : futW.map(w => <WeekBlock key={w} w={w} items={callsByWeek[w]} />)
+      }
+    </div>
+  );
+}
+
+// ─── TAB: CARRERAS ────────────────────────────────
+function CarrerasTab({ clients, onOpen }) {
+  const allRaces = useMemo(() => {
+    const list = [];
+    clients.forEach(({c,d}) => d.races.forEach(r => list.push({ c, d, race:r, days:r.date-TODAY })));
+    return list.sort((a,b) => a.race.date - b.race.date);
+  }, [clients]);
+
+  const upcoming = allRaces.filter(r => r.days > 0);
+  const past     = allRaces.filter(r => r.days <= 0);
+  const noRace   = useMemo(() => clients.filter(({c,d}) => d.races.length===0 && c.estado==="Activo"), [clients]);
+
+  const RaceRow = ({ c, d, race, days, isPast }) => {
+    const urg = isPast ? null : days<=7?"🔴":days<=14?"🟡":"🟢";
+    const urgColor = urg==="🔴"?"#dc2626":urg==="🟡"?"#ca8a04":"#16a34a";
+    return (
+      <div onClick={() => onOpen(c)} style={{ background:isPast?"#f9fafb":"white", borderRadius:12, padding:14, marginBottom:8, boxShadow:"0 1px 4px rgba(0,0,0,.06)", cursor:"pointer", border:`1px solid ${isPast?"#f0f0f0":urg==="🔴"?"#fecaca":urg==="🟡"?"#fde68a":"#f0f0f0"}` }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <div>
+            <div style={{ fontSize:13, fontWeight:600, color:isPast?"#6b7280":"#111827" }}>{c.nombre}</div>
+            <div style={{ fontSize:12, color:"#ea580c", marginTop:3 }}>🏁 <strong>{race.name}</strong> · {fd(race.date)}</div>
+            <div style={{ fontSize:11, color:"#9ca3af", marginTop:2 }}>S{d.sc}/{c.st} · {c.mod}</div>
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4 }}>
+            {isPast
+              ? <Tag bg="#f3f4f6" fg="#9ca3af">Pasada</Tag>
+              : <>
+                  <div style={{ background:"#f9fafb", border:`1px solid ${urgColor}22`, borderRadius:10, padding:"4px 12px", textAlign:"center" }}>
+                    <div style={{ fontSize:20, fontWeight:700, color:urgColor, lineHeight:1 }}>{days}</div>
+                    <div style={{ fontSize:9, color:urgColor }}>días</div>
+                  </div>
+                  <div style={{ fontSize:10, fontWeight:600, color:urgColor }}>{days<=7?"🔴 Planificar ya":days<=14?"🟡 Enviar tabla":"🟢 OK"}</div>
+                </>
+            }
+            <div style={{ fontSize:10, color:"#9ca3af" }}>✏️ Editar en modal</div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <div style={{ background:BL, borderRadius:10, padding:"10px 16px", marginBottom:16, fontSize:12, color:BD }}>
+        ✏️ Para añadir, editar o eliminar carreras abre el modal del cliente.
+      </div>
+      <Section title="Próximas carreras" count={upcoming.length}>
+        {upcoming.length === 0
+          ? <div style={{ background:"white", borderRadius:10, padding:20, color:"#9ca3af", textAlign:"center", fontSize:12 }}>Sin carreras próximas</div>
+          : upcoming.map((r,i) => <RaceRow key={i} {...r} />)
+        }
+      </Section>
+      {past.length > 0 && (
+        <Section title="Carreras pasadas">
+          {past.map((r,i) => <RaceRow key={i} {...r} isPast />)}
+        </Section>
+      )}
+      {noRace.length > 0 && (
+        <Section title={`Sin carreras registradas · ${noRace.length} activos`}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:8 }}>
+            {noRace.map(({c,d}) => (
+              <div key={c.id} onClick={() => onOpen(c)} style={{ background:"white", borderRadius:10, padding:"10px 14px", boxShadow:"0 1px 4px rgba(0,0,0,.06)", cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <div>
+                  <div style={{ fontSize:12, fontWeight:500 }}>{c.nombre}</div>
+                  <div style={{ fontSize:11, color:"#9ca3af" }}>S{d.sc}/{c.st}</div>
+                </div>
+                <span style={{ background:BL, color:B, fontSize:11, fontWeight:600, padding:"4px 10px", borderRadius:6 }}>+ Añadir</span>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+      <div style={{ background:BL, borderRadius:10, padding:"12px 16px", fontSize:12, color:BD }}>
+        💡 <strong>Protocolo:</strong> 🔴 ≤7d → planificar | 🟡 8–14d → enviar tabla | 🟢 +14d → OK
+      </div>
+    </div>
+  );
+}
+
+// ─── TAB: COBROS ──────────────────────────────────
+function CobrosTab({ data, upd }) {
+  const [search,  setSearch]  = useState("");
+  const [metF,    setMetF]    = useState("all");
+  const [mesF,    setMesF]    = useState("all");
+  const [showAdd, setShowAdd] = useState(false);
+  const [newC,    setNewC]    = useState({ fecha:"", cliente:"", concepto:"", importe:"", metodo:"Stripe", notas:"" });
+
+  const received = useMemo(() => [...ICO, ...(data.cobrosExtra||[]).filter(c=>c.estado!=="pendiente")].sort((a,b)=>b.f-a.f), [data.cobrosExtra]);
+  const pending  = useMemo(() => (data.cobrosExtra||[]).filter(c=>c.estado==="pendiente").sort((a,b)=>a.f-b.f), [data.cobrosExtra]);
+  const meses    = useMemo(() => [...new Set(received.map(c=>fMes(c.f)))], [received]);
+
+  const filtered = useMemo(() => received.filter(c => {
+    if (search && !c.c.toLowerCase().includes(search.toLowerCase())) return false;
+    if (metF!=="all" && c.m!==metF) return false;
+    if (mesF!=="all" && fMes(c.f)!==mesF) return false;
+    return true;
+  }), [received, search, metF, mesF]);
+
+  const totalH  = useMemo(() => received.reduce((s,c)=>s+c.i,0), [received]);
+  const thisMes = useMemo(() => received.filter(c=>fMes(c.f)===fMes(TODAY)).reduce((s,c)=>s+c.i,0), [received]);
+  const porCob  = useMemo(() => pending.reduce((s,c)=>s+c.i,0), [pending]);
+
+  const markCobrada = (id) => upd(p => ({ ...p, cobrosExtra: p.cobrosExtra.map(c => c.id===id?{...c,estado:"cobrado",f:TODAY}:c) }));
+  const delCobro    = (id) => upd(p => ({ ...p, cobrosExtra: p.cobrosExtra.filter(c => c.id!==id) }));
+  const addCobro    = () => {
+    if (!newC.fecha||!newC.cliente||!newC.importe) return;
+    const s = dateStrToSerial(newC.fecha); if (!s) return;
+    upd(p => ({ ...p, cobrosExtra: [...(p.cobrosExtra||[]), { id:Date.now(), f:s, c:newC.cliente, conc:newC.concepto, i:parseFloat(newC.importe)||0, m:newC.metodo, n:newC.notas, estado:"cobrado" }] }));
+    setNewC({ fecha:"", cliente:"", concepto:"", importe:"", metodo:"Stripe", notas:"" });
+    setShowAdd(false);
+  };
+
+  const KPI2 = ({ val, label, color, sub }) => (
+    <div style={{ background:"white", borderRadius:12, padding:"14px 18px", boxShadow:"0 1px 4px rgba(0,0,0,.06)", borderLeft:`4px solid ${color}` }}>
+      <div style={{ fontSize:22, fontWeight:700, color }}>{val}</div>
+      <div style={{ fontSize:11, color:"#6b7280", marginTop:3 }}>{label}</div>
+      {sub && <div style={{ fontSize:10, color:"#9ca3af", marginTop:2 }}>{sub}</div>}
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:12, marginBottom:18 }}>
+        <KPI2 val={`€${totalH.toLocaleString("es-ES")}`}  label="Total cobrado"  color={B} />
+        <KPI2 val={`€${thisMes.toLocaleString("es-ES")}`} label="Este mes"        color="#16a34a" />
+        <KPI2 val={`€${filtered.reduce((s,c)=>s+c.i,0).toLocaleString("es-ES")}`} label="Filtrado" color="#7c3aed" />
+        <KPI2 val={`€${porCob.toLocaleString("es-ES")}`}  label="Por cobrar"      color="#ca8a04" sub={`${pending.length} cuotas pendientes`} />
+      </div>
+
+      {pending.length > 0 && (
+        <div style={{ background:"white", borderRadius:12, marginBottom:16, boxShadow:"0 1px 4px rgba(0,0,0,.06)", overflow:"hidden", border:"1.5px solid #fde68a" }}>
+          <div style={{ background:"#fef9c3", padding:"10px 16px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <span style={{ fontSize:12, fontWeight:700, color:"#92400e" }}>⏳ Cuotas pendientes</span>
+            <span style={{ fontSize:13, fontWeight:700, color:"#ca8a04" }}>€{porCob.toLocaleString("es-ES")}</span>
+          </div>
+          {pending.map((cobro, i) => {
+            const [mbg,mfg] = MC[cobro.m]||["#f3f4f6","#6b7280"];
+            return (
+              <div key={cobro.id} style={{ display:"grid", gridTemplateColumns:"90px 1fr 1fr 70px 80px 120px", padding:"10px 16px", background:i%2===0?"#fffbeb":"#fefce8", borderBottom:"1px solid #fef08a", fontSize:12, alignItems:"center", gap:4 }}>
+                <div style={{ color:"#ca8a04", fontSize:11, fontWeight:600 }}>⏳ {fd(cobro.f)}</div>
+                <div style={{ fontWeight:600, color:"#374151" }}>{cobro.c}</div>
+                <div style={{ color:"#6b7280" }}>{cobro.conc}</div>
+                <div><Tag bg={mbg} fg={mfg} small>{cobro.m}</Tag></div>
+                <div style={{ fontWeight:700, color:"#ca8a04" }}>€{cobro.i}</div>
+                <div style={{ display:"flex", gap:4 }}>
+                  <Btn onClick={() => markCobrada(cobro.id)} variant="success" style={{ padding:"4px 8px", fontSize:10 }}>✓ Cobrada</Btn>
+                  <button onClick={() => delCobro(cobro.id)} style={{ background:"none", border:"none", cursor:"pointer", color:"#9ca3af", fontSize:12 }}>🗑</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div style={{ background:"white", borderRadius:12, padding:14, marginBottom:12, boxShadow:"0 1px 4px rgba(0,0,0,.06)", display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Buscar cliente..." style={{ flex:1, minWidth:160, ...IS }} onFocus={e=>e.target.style.borderColor=B} onBlur={e=>e.target.style.borderColor="#e5e7eb"} />
+        <select value={mesF} onChange={e=>setMesF(e.target.value)} style={{ border:"1.5px solid #e5e7eb", borderRadius:8, padding:"8px 10px", fontSize:12, fontFamily:"inherit", color:"#374151", outline:"none" }}>
+          <option value="all">Todos los meses</option>
+          {meses.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+          {["all","Stripe","PayPal","Bizum","Efectivo"].map(m => (
+            <button key={m} onClick={() => setMetF(m)} style={{ padding:"5px 11px", borderRadius:20, border:"none", cursor:"pointer", fontSize:11, fontFamily:"inherit", fontWeight:metF===m?600:400, background:metF===m?B:BL, color:metF===m?"white":BD, transition:"all .15s" }}>
+              {m==="all"?"Todos":m}
+            </button>
+          ))}
+        </div>
+        <Btn onClick={() => setShowAdd(!showAdd)} variant="primary">+ Añadir cobro</Btn>
+      </div>
+
+      {showAdd && (
+        <div style={{ background:"white", borderRadius:12, padding:16, marginBottom:12, boxShadow:"0 1px 4px rgba(0,0,0,.06)", border:`1.5px solid ${B}` }}>
+          <div style={{ fontSize:12, fontWeight:700, color:BD, marginBottom:10 }}>Nuevo cobro manual</div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:8, marginBottom:10 }}>
+            {[["fecha","dd/mm/aaaa"],["cliente","Nombre cliente"],["concepto","Concepto"],["importe","Importe (€)"],["notas","Notas"]].map(([k,ph]) => (
+              <input key={k} value={newC[k]} onChange={e=>setNewC(p=>({...p,[k]:e.target.value}))} placeholder={ph} style={IS} />
+            ))}
+            <select value={newC.metodo} onChange={e=>setNewC(p=>({...p,metodo:e.target.value}))} style={{ border:"1.5px solid #e5e7eb", borderRadius:8, padding:"8px 12px", fontSize:12, fontFamily:"inherit", outline:"none", color:"#374151" }}>
+              {["Stripe","PayPal","Bizum","Efectivo"].map(m => <option key={m}>{m}</option>)}
+            </select>
+          </div>
+          <div style={{ display:"flex", gap:8 }}>
+            <Btn onClick={addCobro} variant="primary">Guardar cobro</Btn>
+            <Btn onClick={() => setShowAdd(false)}>Cancelar</Btn>
+          </div>
+        </div>
+      )}
+
+      <div style={{ background:"white", borderRadius:12, boxShadow:"0 1px 4px rgba(0,0,0,.06)", overflow:"hidden" }}>
+        <div style={{ display:"grid", gridTemplateColumns:"90px 1fr 1fr 70px 80px", background:B, padding:"9px 14px", fontSize:10, fontWeight:700, color:"white", textTransform:"uppercase", letterSpacing:"0.06em" }}>
+          <div>Fecha</div><div>Cliente</div><div>Concepto</div><div>Método</div><div style={{ textAlign:"right" }}>€</div>
+        </div>
+        {filtered.map((cobro, i) => {
+          const [mbg,mfg] = MC[cobro.m]||["#f3f4f6","#6b7280"];
+          return (
+            <div key={cobro.id||i} style={{ display:"grid", gridTemplateColumns:"90px 1fr 1fr 70px 80px", padding:"9px 14px", background:i%2===0?"white":"#f9fafb", borderBottom:"1px solid #f3f4f6", fontSize:12, alignItems:"center" }}>
+              <div style={{ color:"#9ca3af", fontSize:11, fontWeight:500 }}>{fd(cobro.f)}</div>
+              <div style={{ fontWeight:600, color:"#374151" }}>{cobro.c}</div>
+              <div style={{ color:"#6b7280" }}>{cobro.conc}{cobro.n?<span style={{ color:"#bbb", fontStyle:"italic" }}> · {cobro.n}</span>:null}</div>
+              <div><Tag bg={mbg} fg={mfg} small>{cobro.m}</Tag></div>
+              <div style={{ textAlign:"right", fontWeight:700, color:B }}>€{cobro.i}</div>
+            </div>
+          );
+        })}
+        {filtered.length===0 && <div style={{ textAlign:"center", padding:"40px 0", color:"#9ca3af", fontSize:12 }}>Sin cobros con estos filtros</div>}
+      </div>
+    </div>
+  );
+}
+
+// ─── TAB: DATOS ───────────────────────────────────
+function DatosTab({ clients, data }) {
+  const received  = useMemo(() => [...ICO, ...(data.cobrosExtra||[]).filter(c=>c.estado!=="pendiente")], [data.cobrosExtra]);
+  const activos   = useMemo(() => clients.filter(({c}) => c.estado==="Activo"), [clients]);
+  const completed = useMemo(() => clients.filter(({c}) => ["Renovado","Finalizado","Baja"].includes(c.estado)), [clients]);
+  const totalH    = useMemo(() => received.reduce((s,c)=>s+c.i,0), [received]);
+  const billingM  = useMemo(() => activos.reduce((s,{c}) => s+(c.imp/(c.st/4)), 0), [activos]);
+
+  const renovados   = completed.filter(({c}) => c.estado==="Renovado").length;
+  const noRen       = completed.filter(({c}) => ["Finalizado","Baja"].includes(c.estado)).length;
+  const retRate     = completed.length > 0 ? Math.round(renovados/completed.length*100) : 0;
+
+  const byMonth = useMemo(() => {
+    const m = {};
+    completed.forEach(({c,d}) => {
+      const k = fMes(d.ff);
+      if (!m[k]) m[k] = { s:d.ff, ren:[], noRen:[] };
+      if (c.estado==="Renovado") m[k].ren.push(c.nombre);
+      else m[k].noRen.push(c.nombre);
+    });
+    return Object.entries(m).sort(([,a],[,b]) => a.s-b.s);
+  }, [completed]);
+
+  const revByM = useMemo(() => {
+    const m = {};
+    received.forEach(c => { const k=fMes(c.f); m[k]=(m[k]||0)+c.i; });
+    return Object.entries(m)
+      .map(([k,v]) => ({ k, v, s: received.find(c=>fMes(c.f)===k)?.f||0 }))
+      .sort((a,b)=>a.s-b.s).slice(-6);
+  }, [received]);
+
+  const maxRev  = Math.max(...revByM.map(b=>b.v), 1);
+  const byMod   = useMemo(() => {
+    const m = {};
+    activos.forEach(({c}) => { m[c.mod]=(m[c.mod]||0)+1; });
+    return Object.entries(m).sort((a,b)=>b[1]-a[1]);
+  }, [activos]);
+  const modColor = { "3 meses":B, "6 meses":"#16a34a", "6+1 meses":"#7c3aed", "12 meses":"#ea580c" };
+  const ending60 = useMemo(() => activos.filter(({d})=>d.dr>0&&d.dr<=60).sort((a,b)=>a.d.dr-b.d.dr), [activos]);
+
+  return (
+    <div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:12, marginBottom:20 }}>
+        {[
+          [`${activos.length}`,   "Clientes activos",    B,         "👥"],
+          [`€${Math.round(billingM).toLocaleString("es-ES")}`, "Facturación mensual", "#16a34a", "💰"],
+          [`€${totalH.toLocaleString("es-ES")}`, "Total cobrado", "#7c3aed", "📈"],
+          [`${retRate}%`,         "Tasa de retención",   retRate>=60?"#16a34a":"#ca8a04", "🔄"],
+        ].map(([v,l,c,ico]) => (
+          <div key={l} style={{ background:"white", borderRadius:12, padding:"16px 18px", boxShadow:"0 1px 4px rgba(0,0,0,.07)", borderLeft:`4px solid ${c}` }}>
+            <div style={{ display:"flex", justifyContent:"space-between" }}>
+              <div>
+                <div style={{ fontSize:24, fontWeight:700, color:c }}>{v}</div>
+                <div style={{ fontSize:12, color:"#6b7280", marginTop:4 }}>{l}</div>
+              </div>
+              <div style={{ fontSize:22, opacity:.5 }}>{ico}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:14, marginBottom:20 }}>
+        <div style={{ background:"white", borderRadius:12, padding:"18px 20px", boxShadow:"0 1px 4px rgba(0,0,0,.06)" }}>
+          <div style={{ fontSize:12, fontWeight:700, color:"#374151", marginBottom:16 }}>Facturación mensual (últimos 6 meses)</div>
+          <div style={{ display:"flex", gap:6, alignItems:"flex-end", height:130 }}>
+            {revByM.map(({k,v}) => (
+              <div key={k} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+                <div style={{ fontSize:10, fontWeight:600, color:BD }}>€{v}</div>
+                <div style={{ width:"100%", background:B, borderRadius:"4px 4px 0 0", height:`${Math.round((v/maxRev)*105)}px`, minHeight:4, transition:"height .4s" }} />
+                <div style={{ fontSize:9, color:"#9ca3af", textAlign:"center", lineHeight:1.2 }}>{k}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ background:"white", borderRadius:12, padding:"18px 20px", boxShadow:"0 1px 4px rgba(0,0,0,.06)" }}>
+          <div style={{ fontSize:12, fontWeight:700, color:"#374151", marginBottom:14 }}>Programas activos</div>
+          {byMod.map(([mod,n]) => (
+            <div key={mod} style={{ marginBottom:12 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, marginBottom:4 }}>
+                <span style={{ fontWeight:500, color:modColor[mod]||B }}>{mod}</span>
+                <span style={{ fontWeight:700 }}>{n}</span>
+              </div>
+              <div style={{ height:8, background:"#f0f0f0", borderRadius:4, overflow:"hidden" }}>
+                <div style={{ height:"100%", width:`${(n/activos.length)*100}%`, background:modColor[mod]||B, borderRadius:4, transition:"width .4s" }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <Section title="Análisis de renovaciones">
+        <div style={{ background:"white", borderRadius:12, padding:"16px 20px", boxShadow:"0 1px 4px rgba(0,0,0,.06)", marginBottom:12 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+            <div>
+              <div style={{ fontSize:24, fontWeight:700, color:retRate>=60?"#16a34a":"#ca8a04" }}>{retRate}% tasa de renovación</div>
+              <div style={{ fontSize:12, color:"#6b7280", marginTop:3 }}>{renovados} renovaron · {noRen} no renovaron · {completed.length} completaron</div>
+            </div>
+            <div style={{ display:"flex", gap:16 }}>
+              <div style={{ textAlign:"center" }}><div style={{ fontSize:28, fontWeight:700, color:"#16a34a" }}>{renovados}</div><div style={{ fontSize:10, color:"#9ca3af" }}>Renovaron</div></div>
+              <div style={{ textAlign:"center" }}><div style={{ fontSize:28, fontWeight:700, color:"#dc2626" }}>{noRen}</div><div style={{ fontSize:10, color:"#9ca3af" }}>No renovaron</div></div>
+            </div>
+          </div>
+          {completed.length > 0 && (
+            <div style={{ height:12, background:"#f0f0f0", borderRadius:6, overflow:"hidden", display:"flex" }}>
+              <div style={{ width:`${retRate}%`, background:"#16a34a", transition:"width .4s", borderRadius:"6px 0 0 6px" }} />
+            </div>
+          )}
+        </div>
+        {byMonth.length > 0 && (
+          <div style={{ background:"white", borderRadius:12, boxShadow:"0 1px 4px rgba(0,0,0,.06)", overflow:"hidden" }}>
+            <div style={{ display:"grid", gridTemplateColumns:"100px 1fr 1fr 60px", background:B, padding:"8px 14px", fontSize:10, fontWeight:700, color:"white", textTransform:"uppercase", letterSpacing:"0.05em" }}>
+              <div>Mes</div><div>✅ Renovaron</div><div>❌ No renovaron</div><div style={{ textAlign:"center" }}>Tasa</div>
+            </div>
+            {byMonth.map(([mes, { ren, noRen: nr }]) => {
+              const rate = Math.round(ren.length/(ren.length+nr.length)*100);
+              return (
+                <div key={mes} style={{ display:"grid", gridTemplateColumns:"100px 1fr 1fr 60px", padding:"10px 14px", borderBottom:"1px solid #f3f4f6", fontSize:12, alignItems:"start" }}>
+                  <div style={{ fontWeight:600, color:"#374151", paddingTop:1 }}>{mes}</div>
+                  <div>{ren.length>0?ren.map(n=><div key={n} style={{ color:"#16a34a", fontSize:11 }}>✅ {n}</div>):<span style={{ color:"#9ca3af", fontSize:11 }}>—</span>}</div>
+                  <div>{nr.length>0?nr.map(n=><div key={n} style={{ color:"#dc2626", fontSize:11 }}>❌ {n}</div>):<span style={{ color:"#9ca3af", fontSize:11 }}>—</span>}</div>
+                  <div style={{ textAlign:"center" }}><span style={{ fontWeight:700, color:rate>=60?"#16a34a":"#dc2626", fontSize:13 }}>{rate}%</span></div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {byMonth.length === 0 && <div style={{ background:"white", borderRadius:10, padding:20, color:"#9ca3af", fontSize:12, textAlign:"center" }}>Aún no hay clientes que hayan completado un ciclo</div>}
+      </Section>
+
+      <Section title="Programas que terminan en 60 días" count={ending60.length}>
+        {ending60.length === 0
+          ? <div style={{ background:"white", borderRadius:10, padding:20, color:"#9ca3af", fontSize:12, textAlign:"center" }}>Ninguno acaba en 60 días</div>
+          : <div style={{ background:"white", borderRadius:12, boxShadow:"0 1px 4px rgba(0,0,0,.06)", overflow:"hidden" }}>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 90px 70px 80px", background:B, padding:"8px 14px", fontSize:10, fontWeight:700, color:"white", textTransform:"uppercase", letterSpacing:"0.05em" }}>
+                <div>Cliente</div><div>Fin</div><div>Días</div><div>Programa</div>
+              </div>
+              {ending60.map(({c,d},i) => (
+                <div key={c.id} style={{ display:"grid", gridTemplateColumns:"1fr 90px 70px 80px", padding:"9px 14px", background:i%2===0?"white":"#f9fafb", borderBottom:"1px solid #f3f4f6", fontSize:12, alignItems:"center" }}>
+                  <div style={{ fontWeight:600, color:"#374151" }}>{c.nombre}</div>
+                  <div style={{ color:"#6b7280", fontSize:11 }}>{fd(d.ff)}</div>
+                  <div><SemTag sem={d.sem} dr={d.dr} /></div>
+                  <div style={{ color:"#6b7280" }}>{c.mod}</div>
+                </div>
+              ))}
+            </div>
+        }
+      </Section>
+    </div>
+  );
+}
+
+// ─── APP ──────────────────────────────────────────
+const TABS = [
+  { id:"semana",   label:"🗓️ Semana"   },
+  { id:"clientes", label:"👥 Clientes" },
+  { id:"llamadas", label:"📞 Llamadas" },
+  { id:"carreras", label:"🏁 Carreras" },
+  { id:"cobros",   label:"💶 Cobros"   },
+  { id:"datos",    label:"📊 Datos"    },
+];
+
+function App() {
+  const { data, upd, ready, sync, lastSync, forceSync, exportJSON } = useStore();
+  const [tab,          setTab]          = useState("semana");
+  const [modalId,      setModalId]      = useState(null);
+  const [showAdd,      setShowAdd]      = useState(false);
+  const [renewPrefill,    setRenewPrefill]    = useState(null);
+
+  useEffect(() => {
+    const l = document.createElement("link");
+    l.href = "https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap";
+    l.rel  = "stylesheet";
+    document.head.appendChild(l);
+    document.body.style.cssText = "margin:0;background:#f0f4f8;font-family:'Poppins',sans-serif;";
+
+  }, []);
+
+  const clients = useMemo(() => {
+    const all = [...IC, ...(data.clientesExtra||[])];
+    return all.map(c => {
+      const sOvr = data.overrides?.[c.id] || {};
+      const rOvr = data.raceOvr?.[c.id]   || {};
+      const cF   = { ...c, ...(sOvr.estado ? { estado: sOvr.estado } : {}) };
+      return { c: cF, d: calc(cF, { ...data.raceOvr, [c.id]: rOvr }) };
+    });
+  }, [data.clientesExtra, data.overrides, data.raceOvr]);
+
+  // Map of nombre → pending entry, to show "already renewed early" indicators
+  const pendingRenewals = useMemo(() => {
+    const map = {};
+    (data.clientesExtra||[])
+      .filter(e => e.estado === "Pendiente")
+      .forEach(e => { map[e.nombre.toLowerCase().trim()] = e; });
+    return map;
+  }, [data.clientesExtra]);
+
+  const getPending = (nombre) => pendingRenewals[nombre.toLowerCase().trim()] || null;
+
+  const modalEntry = useMemo(() => modalId!=null ? clients.find(({c})=>c.id===modalId) : null, [modalId, clients]);
+  const handleOpen  = (c) => setModalId(c.id);
+  const handleRenew = (c) => {
+    upd(p => ({ ...p, overrides: { ...p.overrides, [c.id]: { ...(p.overrides[c.id]||{}), estado:"Renovado" } } }));
+    setRenewPrefill({ nombre:c.nombre, mod:c.mod, imp:c.imp, renov:(c.renov||0)+1, sp:(c.sp||0)+c.st });
+    setShowAdd(true);
+  };
+
+  const activeCount  = clients.filter(({c})=>c.estado==="Activo").length;
+  const urgentCount  = clients.filter(({c,d})=>c.estado==="Activo"&&(d.isRenNow||d.isOptNow)).length;
+
+  if (!ready) {
+    return (
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"center", minHeight:"100vh", fontFamily:"'Poppins',sans-serif", color:B, flexDirection:"column", gap:12 }}>
+        <div style={{ fontSize:24 }}>🏃</div>
+        <div style={{ fontSize:14 }}>Cargando Fuel to Run...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ minHeight:"100vh", background:"#f0f4f8", fontFamily:"'Poppins',sans-serif" }}>
+      {/* Header */}
+      <div style={{ background:`linear-gradient(135deg,${B} 0%,${BD} 100%)`, position:"sticky", top:0, zIndex:100, boxShadow:"0 2px 12px rgba(61,138,165,.3)" }}>
+        <div style={{ maxWidth:1100, margin:"0 auto", padding:"12px 20px 0", display:"flex", justifyContent:"space-between", alignItems:"center", gap:12 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ background:"rgba(255,255,255,.2)", borderRadius:10, width:38, height:38, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>🏃</div>
+            <div>
+              <div style={{ fontWeight:700, fontSize:15, letterSpacing:"0.08em", color:"white" }}>FUEL TO RUN</div>
+              <div style={{ fontSize:10, opacity:.75, color:"white" }}>
+                {new Date().toLocaleDateString("es-ES",{ weekday:"long", day:"2-digit", month:"long" })}
+              </div>
+            </div>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <div style={{ fontSize:11, color:"rgba(255,255,255,.75)", textAlign:"right" }}>
+              <div>{activeCount} activos{urgentCount>0&&<span style={{ color:"#fde68a", fontWeight:600, marginLeft:8 }}>⚠ {urgentCount} urgentes</span>}</div>
+
+            </div>
+            <SyncBadge sync={sync} lastSync={lastSync} onForce={forceSync} onExport={exportJSON} />
+          </div>
+        </div>
+        <div style={{ maxWidth:1100, margin:"0 auto", padding:"0 20px", display:"flex", gap:2, overflowX:"auto" }}>
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              style={{ padding:"10px 14px", background:tab===t.id?"white":"transparent", color:tab===t.id?B:"rgba(255,255,255,.85)", border:"none", borderRadius:"8px 8px 0 0", cursor:"pointer", fontWeight:tab===t.id?600:400, fontSize:12, fontFamily:"inherit", whiteSpace:"nowrap", transition:"all .15s" }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div style={{ maxWidth:1100, margin:"0 auto", padding:20 }}>
+        {tab==="semana"   && <WeekTab     clients={clients} data={data} upd={upd} onOpen={handleOpen} />}
+        {tab==="clientes" && <ClientsTab  clients={clients} data={data} upd={upd} onOpen={handleOpen} onAddClient={() => { setRenewPrefill(null); setShowAdd(true); }} getPending={getPending} />}
+        {tab==="llamadas" && <LlamadasTab clients={clients} data={data} upd={upd} onOpen={handleOpen} />}
+        {tab==="carreras" && <CarrerasTab clients={clients} onOpen={handleOpen} />}
+        {tab==="cobros"   && <CobrosTab   data={data} upd={upd} />}
+        {tab==="datos"    && <DatosTab    clients={clients} data={data} />}
+      </div>
+
+      {/* Modals */}
+      {modalEntry && (
+        <ClientModal c={modalEntry.c} d={modalEntry.d} data={data} upd={upd}
+          onClose={() => setModalId(null)} onRenew={handleRenew}
+/>
+      )}
+      {showAdd && (
+        <AddClientModal onClose={() => { setShowAdd(false); setRenewPrefill(null); }} upd={upd} prefill={renewPrefill} />
+      )}
+
+    </div>
+  );
+}
+
+
+    // Mount the app
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(React.createElement(App));
+  </script>
+</body>
+</html>
