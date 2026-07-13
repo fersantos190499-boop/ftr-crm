@@ -1,6 +1,5 @@
-// Fuel to Run — Notion Sync Function
-// Stores/retrieves the entire app state as JSON in a Notion page.
-// Required env var in Netlify: NOTION_TOKEN
+// Fuel to Run — Notion Sync
+// Env var required: NOTION_TOKEN
 
 const PAGE_TITLE = "FTR — App Data";
 
@@ -24,25 +23,19 @@ async function notion(method, path, body) {
 }
 
 async function findOrCreatePage() {
-  // Search for existing page
   const search = await notion("POST", "/search", {
     query: PAGE_TITLE,
     filter: { value: "page", property: "object" },
   });
   const page = search.results?.find(
-    (p) =>
-      p.object === "page" &&
+    (p) => p.object === "page" &&
       p.properties?.title?.title?.[0]?.plain_text === PAGE_TITLE
   );
   if (page) return page.id;
-
-  // Create new page at workspace root
   const newPage = await notion("POST", "/pages", {
     parent: { type: "workspace", workspace: true },
     properties: {
-      title: {
-        title: [{ type: "text", text: { content: PAGE_TITLE } }],
-      },
+      title: { title: [{ type: "text", text: { content: PAGE_TITLE } }] },
     },
   });
   return newPage.id;
@@ -55,80 +48,54 @@ async function loadData(pageId) {
       block.code?.rich_text?.[0]?.plain_text ||
       block.paragraph?.rich_text?.[0]?.plain_text;
     if (text && text.trimStart().startsWith("{")) {
-      try {
-        return JSON.parse(text);
-      } catch {}
+      try { return JSON.parse(text); } catch {}
     }
   }
   return null;
 }
 
 async function saveData(pageId, data) {
-  // Delete all existing blocks
   const existing = await notion("GET", `/blocks/${pageId}/children`);
   await Promise.all(
     (existing.results || []).map((b) => notion("DELETE", `/blocks/${b.id}`))
   );
-  // Write new data as a code block
   await notion("PATCH", `/blocks/${pageId}/children`, {
-    children: [
-      {
-        type: "code",
-        code: {
-          language: "json",
-          rich_text: [
-            { type: "text", text: { content: JSON.stringify(data) } },
-          ],
-        },
+    children: [{
+      type: "code",
+      code: {
+        language: "json",
+        rich_text: [{ type: "text", text: { content: JSON.stringify(data) } }],
       },
-    ],
+    }],
   });
 }
 
-export default async (req) => {
-  // CORS preflight
-  if (req.method === "OPTIONS") {
-    return new Response("", { status: 200, headers: CORS });
+exports.handler = async (event) => {
+  if (event.httpMethod === "OPTIONS") {
+    return { statusCode: 200, headers: CORS, body: "" };
   }
-
   if (!process.env.NOTION_TOKEN) {
-    return new Response(
-      JSON.stringify({ error: "NOTION_TOKEN not set in environment variables" }),
-      { status: 500, headers: CORS }
-    );
+    return { statusCode: 500, headers: CORS,
+      body: JSON.stringify({ error: "NOTION_TOKEN not set" }) };
   }
-
   try {
-    const { action, pageId, data } = await req.json();
-
+    const { action, pageId, data } = JSON.parse(event.body || "{}");
     if (action === "load") {
-      const pid = pageId || (await findOrCreatePage());
+      const pid = pageId || await findOrCreatePage();
       const loaded = await loadData(pid);
-      return new Response(JSON.stringify({ data: loaded, pageId: pid }), {
-        status: 200,
-        headers: CORS,
-      });
+      return { statusCode: 200, headers: CORS,
+        body: JSON.stringify({ data: loaded, pageId: pid }) };
     }
-
     if (action === "save") {
-      const pid = pageId || (await findOrCreatePage());
+      const pid = pageId || await findOrCreatePage();
       await saveData(pid, data);
-      return new Response(JSON.stringify({ success: true, pageId: pid }), {
-        status: 200,
-        headers: CORS,
-      });
+      return { statusCode: 200, headers: CORS,
+        body: JSON.stringify({ success: true, pageId: pid }) };
     }
-
-    return new Response(JSON.stringify({ error: "Unknown action" }), {
-      status: 400,
-      headers: CORS,
-    });
+    return { statusCode: 400, headers: CORS,
+      body: JSON.stringify({ error: "Unknown action" }) };
   } catch (e) {
-    return new Response(JSON.stringify({ error: e.message }), {
-      status: 500,
-      headers: CORS,
-    });
+    return { statusCode: 500, headers: CORS,
+      body: JSON.stringify({ error: e.message }) };
   }
 };
-
-export const config = { path: "/api/sync" };
