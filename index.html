@@ -1,12 +1,12 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
   <title>Fuel to Run CRM</title>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-  <style>* { box-sizing: border-box; } body { margin:0; padding:0; }</style>
+  <style>*{box-sizing:border-box}body{margin:0;padding:0}</style>
 </head>
 <body>
   <div id="root"></div>
@@ -94,7 +94,7 @@ const calc = (c, raceOvr) => {
   const el = Math.max(0, TODAY - c.fi),
     tot = c.st * 7;
   const pct = Math.max(0, Math.min(el / tot, 1));
-  const sc = Math.max(1, Math.min(Math.ceil(el / 7), c.st));
+  const sc = Math.max(1, Math.min(Math.floor(el / 7) + 1, c.st));
   const sg = (c.sp || 0) + sc;
   const sem = dr <= 0 ? "⚫" : dr <= 7 ? "🔴" : dr <= 21 ? "🟡" : "🟢";
   const rw = getRW(c.mod),
@@ -956,7 +956,7 @@ async function notionLoad() {
       pageId: notionPageId
     })
   });
-  if (!res.ok) throw new Error(`Sync error ${res.status}`);
+  if (!res.ok) throw new Error("Sync error " + res.status);
   const result = await res.json();
   if (result.pageId) notionPageId = result.pageId;
   return result.data || null;
@@ -973,7 +973,7 @@ async function notionSave(appData) {
       data: appData
     })
   });
-  if (!res.ok) throw new Error(`Sync error ${res.status}`);
+  if (!res.ok) throw new Error("Sync error " + res.status);
   const result = await res.json();
   if (result.pageId) notionPageId = result.pageId;
 }
