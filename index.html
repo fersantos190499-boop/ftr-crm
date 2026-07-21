@@ -943,39 +943,38 @@ const ICO = [{
   n: ""
 }];
 
-// ─── SYNC (via Netlify Function → Notion) ─────────
-let notionPageId = null;
+// ─── SYNC (Supabase) ──────────────────────────────
+const SUPABASE_URL = "https://duwcvzlcxdcbyvlxibrv.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR1d2N2emxjeGRjYnl2bHhpYnJ2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ2MzUzNTUsImV4cCI6MjEwMDIxMTM1NX0.F_gLyBH7oL5T8KOg3N1GUndBoPhS4k17AYLrZWlDCDc";
+const SB_HEADERS = {
+  "apikey": SUPABASE_KEY,
+  "Authorization": "Bearer " + SUPABASE_KEY,
+  "Content-Type": "application/json"
+};
 async function notionLoad() {
-  const res = await fetch("/.netlify/functions/sync", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      action: "load",
-      pageId: notionPageId
-    })
+  if (!SUPABASE_URL || SUPABASE_URL === "https://duwcvzlcxdcbyvlxibrv.supabase.co") throw new Error("Supabase no configurado");
+  const res = await fetch(SUPABASE_URL + "/rest/v1/ftr_data?id=eq.1&select=data", {
+    headers: SB_HEADERS
   });
-  if (!res.ok) throw new Error("Sync error " + res.status);
-  const result = await res.json();
-  if (result.pageId) notionPageId = result.pageId;
-  return result.data || null;
+  if (!res.ok) throw new Error("Supabase load " + res.status);
+  const rows = await res.json();
+  const data = rows[0]?.data;
+  return data && data.notes !== undefined ? data : null;
 }
 async function notionSave(appData) {
-  const res = await fetch("/.netlify/functions/sync", {
+  if (!SUPABASE_URL || SUPABASE_URL === "https://duwcvzlcxdcbyvlxibrv.supabase.co") throw new Error("Supabase no configurado");
+  const res = await fetch(SUPABASE_URL + "/rest/v1/ftr_data", {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      ...SB_HEADERS,
+      "Prefer": "resolution=merge-duplicates,return=minimal"
     },
     body: JSON.stringify({
-      action: "save",
-      pageId: notionPageId,
+      id: 1,
       data: appData
     })
   });
-  if (!res.ok) throw new Error("Sync error " + res.status);
-  const result = await res.json();
-  if (result.pageId) notionPageId = result.pageId;
+  if (!res.ok) throw new Error("Supabase save " + res.status);
 }
 
 // ─── STORAGE HOOK ─────────────────────────────────
@@ -1110,6 +1109,25 @@ function useStore() {
     a.download = `ftr-backup-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
   }, []);
+  const importJSON = jsonStr => {
+    try {
+      const parsed = {
+        ...DEF,
+        ...JSON.parse(jsonStr)
+      };
+      setData(parsed);
+      latestData.current = parsed;
+      try {
+        localStorage.setItem(SK, JSON.stringify(parsed));
+      } catch {}
+      // Save to Supabase immediately
+      notionLoaded.current = true;
+      notionSave(parsed).catch(e => console.warn("Import save:", e.message));
+      setSync(SYNC.SAVING);
+    } catch {
+      alert("Error: archivo JSON inválido");
+    }
+  };
   return {
     data,
     upd,
@@ -1117,7 +1135,8 @@ function useStore() {
     sync,
     lastSync,
     forceSync,
-    exportJSON
+    exportJSON,
+    importJSON
   };
 }
 
@@ -1342,7 +1361,8 @@ function SyncBadge({
   sync,
   lastSync,
   onForce,
-  onExport
+  onExport,
+  onImport
 }) {
   const [open, setOpen] = useState(false);
   const cfg = {
@@ -1460,7 +1480,38 @@ function SyncBadge({
       fontSize: 11,
       padding: "6px 12px"
     }
-  }, "💾 Descargar backup"))));
+  }, "💾 Descargar backup"), /*#__PURE__*/React.createElement("label", {
+    style: {
+      padding: "7px 14px",
+      borderRadius: 8,
+      border: "none",
+      cursor: "pointer",
+      fontSize: 11,
+      fontFamily: "inherit",
+      fontWeight: 600,
+      background: "#f3f4f6",
+      color: "#374151",
+      textAlign: "center",
+      display: "block"
+    }
+  }, "📂 Importar backup", /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    accept: ".json",
+    style: {
+      display: "none"
+    },
+    onChange: e => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        onImport(ev.target.result);
+        setOpen(false);
+      };
+      reader.readAsText(file);
+      e.target.value = "";
+    }
+  })))));
 }
 
 // ─── ADD CLIENT MODAL ─────────────────────────────
@@ -4831,7 +4882,8 @@ function App() {
     sync,
     lastSync,
     forceSync,
-    exportJSON
+    exportJSON,
+    importJSON
   } = useStore();
   const [tab, setTab] = useState("semana");
   const [modalId, setModalId] = useState(null);
@@ -5007,7 +5059,8 @@ function App() {
     sync: sync,
     lastSync: lastSync,
     onForce: forceSync,
-    onExport: exportJSON
+    onExport: exportJSON,
+    onImport: importJSON
   }))), /*#__PURE__*/React.createElement("div", {
     style: {
       maxWidth: 1100,
