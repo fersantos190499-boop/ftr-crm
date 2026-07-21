@@ -1005,6 +1005,8 @@ function useStore() {
   const [lastSync, setLastSync] = useState(null);
   const saveTimer = useRef(null);
   const latestData = useRef(data);
+  const notionLoaded = useRef(false); // ← CRITICAL: blocks saves until Notion is loaded
+
   useEffect(() => {
     (async () => {
       try {
@@ -1053,10 +1055,12 @@ function useStore() {
             return n;
           });
         }
+        notionLoaded.current = true; // Notion data is now authoritative
         setSync(SYNC.SYNCED);
         setLastSync(new Date());
       } catch (e) {
         console.warn("Notion load:", e.message);
+        notionLoaded.current = true; // Allow saves even in offline mode
         setSync(SYNC.ERROR);
       }
     })();
@@ -1074,6 +1078,7 @@ function useStore() {
       if (saveTimer.current) clearTimeout(saveTimer.current);
       setSync(SYNC.SAVING);
       saveTimer.current = setTimeout(async () => {
+        if (!notionLoaded.current) return; // Wait for Notion to load first
         try {
           await notionSave(latestData.current);
           setSync(SYNC.SYNCED);
@@ -5079,7 +5084,6 @@ function App() {
     prefill: renewPrefill
   }));
 }
-
     const root = ReactDOM.createRoot(document.getElementById("root"));
     root.render(React.createElement(App));
   </script>
