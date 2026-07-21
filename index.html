@@ -985,8 +985,7 @@ const DEF = {
   cobrosExtra: [],
   raceOvr: {},
   clientesExtra: [],
-  overrides: {},
-  notionPageId: null
+  overrides: {}
 };
 const SYNC = {
   INIT: "init",
@@ -1024,7 +1023,6 @@ function useStore() {
           };
           setData(p);
           latestData.current = p;
-          if (p.notionPageId) notionPageId = p.notionPageId;
         }
       } catch {}
       setReady(true);
@@ -1041,16 +1039,6 @@ function useStore() {
           try {
             localStorage.setItem(SK, JSON.stringify(m));
           } catch {}
-        }
-        if (notionPageId) {
-          setData(p => {
-            const n = {
-              ...p,
-              notionPageId
-            };
-            latestData.current = n;
-            return n;
-          });
         }
         notionLoaded.current = true; // Notion data is now authoritative
         setSync(SYNC.SYNCED);
